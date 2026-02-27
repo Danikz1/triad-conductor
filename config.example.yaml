@@ -1,8 +1,11 @@
+# triad-conductor configuration (example)
 project:
   name: "triad-conductor"
+  # Base branch to start runs from (must exist locally)
   base_branch: "main"
 
 run_limits:
+  # Hard circuit breakers (the conductor must enforce these)
   max_wall_time_minutes: 90
   max_total_cost_usd: 25
   max_total_tool_calls: 200
@@ -21,12 +24,14 @@ phase_limits:
 
 tournament_mode:
   enabled: true
+  # Only trigger tournament if at least one condition is met:
   trigger_if:
     - "stuck_detector_fired_once"
     - "arbiter_requests_tournament"
     - "two_root_cause_hypotheses"
 
 models:
+  # You can map these to any providers; the conductor treats them as labels.
   proposer_models:
     - { name: "claude",   role: "proposer" }
     - { name: "codex",    role: "proposer" }
@@ -42,16 +47,20 @@ models:
     - { name: "gemini", role: "optimizer" }
 
 git:
+  # Branch naming template
   branch_prefix: "run"
+  # Worktree folder (the conductor creates subfolders per run_id)
   worktrees_dir: "worktrees"
 
 artifacts:
   runs_dir: "runs"
   store_screenshots: true
   store_test_logs: true
+  # Keep raw artifacts local; only send redacted artifacts to models
   redact_before_model: true
 
 security:
+  # If true, the conductor will refuse to attach certain file patterns to any model prompt
   denylist_globs:
     - "**/.env"
     - "**/.env.*"

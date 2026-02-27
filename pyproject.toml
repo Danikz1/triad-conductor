@@ -16,9 +16,16 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+telegram = [
+    "python-telegram-bot>=21.0",
+    "python-dotenv>=1.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["conductor*"]
+
+[project.scripts]
+conductor = "conductor.skeleton_conductor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

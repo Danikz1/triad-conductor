@@ -1,9 +1,23 @@
-runs/
-worktrees/
+# Environment variables (secrets)
+.env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
-.venv/
 *.egg-info/
 dist/
 build/
+*.egg
+.venv/
 .pytest_cache/
+
+# Runs and worktrees (generated data)
+runs/
+worktrees/
+
+# OS
+.DS_Store
+Thumbs.db
