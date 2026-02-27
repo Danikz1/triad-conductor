@@ -1,0 +1,35 @@
+{
+  "kind": "final_report",
+  "run_id": "2026-02-26_180530Z_ab12cd",
+  "status": "SUCCESS",
+  "summary": "Implemented the 6-phase conductor workflow with JSON-validated agent outputs, git worktree isolation, stuck detection, and circuit breakers.",
+  "how_to_run": [
+    "python conductor.py run --task tasks/my_task.md --config config.yaml"
+  ],
+  "tests_ran": [
+    "python -m pytest -q",
+    "python -m pytest -q -k smoke"
+  ],
+  "artifacts": {
+    "screenshots": [
+      "runs/<run_id>/artifacts/screenshots/index.json"
+    ],
+    "logs": [
+      "runs/<run_id>/artifacts/logs/conductor.log"
+    ],
+    "test_reports": [
+      "runs/<run_id>/artifacts/tests/full.json"
+    ],
+    "branches": [
+      "run/<run_id>/integrate"
+    ]
+  },
+  "known_limitations": [
+    "Cost tracking is approximate unless provider usage is captured."
+  ],
+  "next_steps": [
+    "Wire model CLIs + MCP tool bus into conductor.py",
+    "Add a small dashboard if desired"
+  ],
+  "human_action_needed": []
+}

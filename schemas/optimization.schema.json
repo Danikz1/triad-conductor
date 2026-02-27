@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriadConductorOptimization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "agent",
+    "suggestions"
+  ],
+  "properties": {
+    "kind": {
+      "const": "optimization"
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "model"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string"
+        }
+      }
+    },
+    "suggestions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "title",
+          "rationale",
+          "must_preserve_behavior",
+          "patch_unified_diff"
+        ],
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "performance",
+              "simplicity",
+              "robustness",
+              "security"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 10
+          },
+          "metric_or_proof": {
+            "type": "string"
+          },
+          "must_preserve_behavior": {
+            "type": "boolean"
+          },
+          "patch_unified_diff": {
+            "type": "string",
+            "minLength": 10
+          }
+        }
+      }
+    }
+  }
+}

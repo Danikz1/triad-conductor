@@ -1,0 +1,27 @@
+{
+  "kind": "qa",
+  "agent": {
+    "name": "gemini",
+    "model": "gemini-2.0"
+  },
+  "verdict": "CONCERNS",
+  "concerns": [
+    {
+      "title": "Redaction may miss tokens in JSON logs",
+      "severity": "medium",
+      "evidence": "Redaction rules list common patterns but not JSON key names like accessToken.",
+      "suggested_test_or_fix": "Add redaction for keys matching /(token|secret|password|access)/i in JSON-like text."
+    }
+  ],
+  "tests_to_add": [
+    {
+      "purpose": "Ensure redaction catches bearer tokens",
+      "command": "python -m pytest -q -k redaction",
+      "code_snippet": "def test_redact_bearer():\\n    assert redact('Authorization: Bearer abc') == 'Authorization: Bearer [REDACTED]'\\n"
+    }
+  ],
+  "repro_notes": [
+    "Try logs that include JSON blobs with token fields."
+  ],
+  "confidence": 0.7
+}

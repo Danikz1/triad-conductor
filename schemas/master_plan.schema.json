@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriadConductorMasterPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "run_id",
+    "task",
+    "acceptance_criteria",
+    "milestones",
+    "test_matrix",
+    "stop_conditions",
+    "risk_flags"
+  ],
+  "properties": {
+    "kind": {
+      "const": "master_plan"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 6
+    },
+    "task": {
+      "type": "string",
+      "minLength": 10
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "acceptance_criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "must",
+        "should",
+        "could"
+      ],
+      "properties": {
+        "must": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "should": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        },
+        "could": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 5
+          }
+        }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "definition_of_done",
+          "required_tests"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^M[0-9]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 10
+          },
+          "definition_of_done": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "implementation_notes": {
+            "type": "string"
+          },
+          "likely_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_tests": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 2
+            }
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 3
+            }
+          }
+        }
+      }
+    },
+    "test_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "smoke",
+        "full"
+      ],
+      "properties": {
+        "smoke": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "full": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "stop_conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_build_iterations",
+        "max_review_loops",
+        "max_optimize_passes",
+        "max_wall_time_minutes"
+      ],
+      "properties": {
+        "max_build_iterations": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_review_loops": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_optimize_passes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_wall_time_minutes": {
+          "type": "integer",
+          "minimum": 5
+        },
+        "max_total_cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_total_tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "tournament_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "trigger_reason": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

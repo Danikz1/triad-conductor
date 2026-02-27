@@ -1,0 +1,74 @@
+{
+  "kind": "proposal",
+  "agent": {
+    "name": "claude",
+    "model": "claude-3.5"
+  },
+  "approach_summary": "Implement the conductor as a deterministic state machine, with a shared tool bus for tests/lint/screenshot and strict circuit breakers.",
+  "acceptance_criteria": {
+    "must": [
+      "Conductor enforces iteration/time/budget limits",
+      "All model outputs validate against JSON schemas",
+      "Builder changes are isolated in git branches/worktrees"
+    ],
+    "should": [
+      "Tournament mode available when stuck or ambiguous",
+      "Artifacts saved with redaction before model prompts"
+    ],
+    "could": [
+      "Web UI dashboard for runs"
+    ]
+  },
+  "plan": [
+    {
+      "id": "init_state",
+      "title": "Run state + directories",
+      "description": "Create run_id, state.json, artifact directories, and git branches/worktrees.",
+      "likely_files": [
+        "conductor.py",
+        "runs/<run_id>/state.json"
+      ],
+      "outputs": [
+        "state.json created",
+        "worktrees created"
+      ]
+    },
+    {
+      "id": "propose",
+      "title": "Proposal fan-out",
+      "description": "Call 3 models in parallel and validate proposal JSON.",
+      "outputs": [
+        "3 proposal JSON files"
+      ]
+    },
+    {
+      "id": "synthesize",
+      "title": "Master plan",
+      "description": "Arbiter merges proposals into master_plan.json with MUST/SHOULD/COULD criteria.",
+      "outputs": [
+        "master_plan.json"
+      ]
+    }
+  ],
+  "tests": {
+    "commands": [
+      "python -m pytest -q"
+    ],
+    "notes": "Use smoke vs full test sets from master_plan.test_matrix."
+  },
+  "risks": [
+    {
+      "severity": "medium",
+      "title": "Scope creep",
+      "detail": "Unioning criteria can accidentally expand requirements.",
+      "mitigation": "Use MUST/SHOULD/COULD and only gate on MUST."
+    }
+  ],
+  "unknowns": [
+    "Exact repo structure may require a repo_summary step."
+  ],
+  "rollback": [
+    "Keep all work on run/<run_id> branches; base branch untouched."
+  ],
+  "tournament_recommended": false
+}

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriadConductorFinalReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "run_id",
+    "status",
+    "summary",
+    "how_to_run",
+    "tests_ran",
+    "artifacts",
+    "known_limitations",
+    "next_steps"
+  ],
+  "properties": {
+    "kind": {
+      "const": "final_report"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 6
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "PARTIAL",
+        "BLOCKED"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 20
+    },
+    "how_to_run": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 2
+      }
+    },
+    "tests_ran": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 2
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "screenshots",
+        "logs",
+        "test_reports",
+        "branches"
+      ],
+      "properties": {
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "logs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "test_reports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "known_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "next_steps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "human_action_needed": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    }
+  }
+}

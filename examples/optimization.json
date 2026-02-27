@@ -1,0 +1,17 @@
+{
+  "kind": "optimization",
+  "agent": {
+    "name": "codex",
+    "model": "gpt-5-codex"
+  },
+  "suggestions": [
+    {
+      "category": "simplicity",
+      "title": "Centralize circuit breaker checks",
+      "rationale": "A single function reduces bugs and ensures consistent enforcement across phases.",
+      "metric_or_proof": "Fewer duplicated checks across phase handlers.",
+      "must_preserve_behavior": true,
+      "patch_unified_diff": "diff --git a/conductor.py b/conductor.py\\nindex 000..111 100644\\n--- a/conductor.py\\n+++ b/conductor.py\\n@@\\n+def check_breakers(state, limits):\\n+    ...\\n"
+    }
+  ]
+}

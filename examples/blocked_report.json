@@ -1,0 +1,34 @@
+{
+  "kind": "blocked_report",
+  "run_id": "2026-02-26_180530Z_ab12cd",
+  "status": "BLOCKED",
+  "block_reason": "Spec contradiction: requires offline-only operation but also requires cloud-only model access.",
+  "evidence": [
+    "Task says: 'no data leaves device' but also says: 'use model X cloud API'."
+  ],
+  "what_was_tried": [
+    "Attempted redaction-only approach; still violates offline requirement."
+  ],
+  "spec_change_options": [
+    {
+      "option": "Allow cloud model usage for non-sensitive data only",
+      "pros": [
+        "Keeps best models"
+      ],
+      "cons": [
+        "Not fully offline"
+      ],
+      "impact": "Define what data is allowed to leave the device."
+    },
+    {
+      "option": "Use local-only models for sensitive pipeline",
+      "pros": [
+        "Meets offline requirement"
+      ],
+      "cons": [
+        "May reduce accuracy"
+      ],
+      "impact": "Requires GPU/quantized models or external local server."
+    }
+  ]
+}

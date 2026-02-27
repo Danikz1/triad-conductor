@@ -1,0 +1,27 @@
+{
+  "kind": "review",
+  "agent": {
+    "name": "claude",
+    "model": "claude-3.5"
+  },
+  "verdict": "REQUEST_CHANGES",
+  "blockers": [
+    {
+      "title": "Missing wall-time circuit breaker enforcement",
+      "evidence": "state_machine.md lists max_wall_time_minutes but no enforcement step in BUILD loop.",
+      "why_it_matters": "Without it, unattended runs can loop indefinitely and burn budget.",
+      "suggested_fix": "Add a time check at the start of each phase iteration and abort to REPORT when exceeded."
+    }
+  ],
+  "requested_changes": [
+    "Add explicit time/budget checks in the conductor loop before calling any model."
+  ],
+  "non_blocking_notes": [
+    "Consider saving a condensed diff summary per iteration for easier review."
+  ],
+  "scope_creep": {
+    "detected": false,
+    "notes": []
+  },
+  "confidence": 0.78
+}

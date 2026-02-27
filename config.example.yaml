@@ -1,0 +1,62 @@
+project:
+  name: "triad-conductor"
+  base_branch: "main"
+
+run_limits:
+  max_wall_time_minutes: 90
+  max_total_cost_usd: 25
+  max_total_tool_calls: 200
+
+phase_limits:
+  propose:
+    timeout_minutes: 8
+  build:
+    max_iterations: 5
+    max_stuck_replans: 1
+  cross_check:
+    max_review_loops: 3
+  optimize:
+    enabled: true
+    max_passes: 2
+
+tournament_mode:
+  enabled: true
+  trigger_if:
+    - "stuck_detector_fired_once"
+    - "arbiter_requests_tournament"
+    - "two_root_cause_hypotheses"
+
+models:
+  proposer_models:
+    - { name: "claude",   role: "proposer" }
+    - { name: "codex",    role: "proposer" }
+    - { name: "gemini",   role: "proposer" }
+
+  arbiter_model:  { name: "claude",  role: "arbiter" }
+  builder_model:  { name: "codex",   role: "builder" }
+  reviewer_model: { name: "claude",  role: "reviewer" }
+  qa_model:       { name: "gemini",  role: "qa" }
+  optimizer_models:
+    - { name: "claude", role: "optimizer" }
+    - { name: "codex",  role: "optimizer" }
+    - { name: "gemini", role: "optimizer" }
+
+git:
+  branch_prefix: "run"
+  worktrees_dir: "worktrees"
+
+artifacts:
+  runs_dir: "runs"
+  store_screenshots: true
+  store_test_logs: true
+  redact_before_model: true
+
+security:
+  denylist_globs:
+    - "**/.env"
+    - "**/.env.*"
+    - "**/*secret*"
+    - "**/*key*"
+    - "**/id_rsa*"
+    - "**/.ssh/**"
+    - "**/Library/Keychains/**"

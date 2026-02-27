@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TriadConductorBuildUpdate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "iteration",
+    "milestone_id",
+    "summary",
+    "changes_made",
+    "next_actions",
+    "self_reported_risks"
+  ],
+  "properties": {
+    "kind": {
+      "const": "build_update"
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "milestone_id": {
+      "type": "string",
+      "pattern": "^M[0-9]+$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10
+    },
+    "changes_made": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "files_touched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "self_reported_risks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5
+      }
+    },
+    "notes_for_reviewer": {
+      "type": "string"
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

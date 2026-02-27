@@ -1,0 +1,79 @@
+{
+  "kind": "master_plan",
+  "run_id": "2026-02-26_180530Z_ab12cd",
+  "task": "Build a multi-model conductor for unattended coding on a Mac mini.",
+  "assumptions": [
+    "Git is available and repo has a base branch called main."
+  ],
+  "acceptance_criteria": {
+    "must": [
+      "Conductor enforces iteration/time/budget limits",
+      "All model outputs validate against JSON schemas",
+      "Builder changes are isolated in git branches/worktrees"
+    ],
+    "should": [
+      "Tournament mode available when stuck or ambiguous",
+      "Artifacts saved with redaction before model prompts"
+    ],
+    "could": [
+      "Web UI dashboard for runs"
+    ]
+  },
+  "milestones": [
+    {
+      "id": "M1",
+      "title": "Scaffolding",
+      "goal": "Create run folders, state tracking, and git worktrees.",
+      "definition_of_done": [
+        "state.json exists",
+        "worktrees created"
+      ],
+      "implementation_notes": "Use run/<run_id>/builder and /integrate branches.",
+      "likely_files": [
+        "conductor/state_machine.md"
+      ],
+      "required_tests": [
+        "echo smoke"
+      ],
+      "deliverables": [
+        "runs/<run_id>/state.json"
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Proposal + synthesis",
+      "goal": "Implement Phase 1 and 2 JSON validation + outputs.",
+      "definition_of_done": [
+        "proposals validated",
+        "master_plan.json produced"
+      ],
+      "required_tests": [
+        "python -m pytest -q"
+      ],
+      "deliverables": [
+        "proposals/*.json",
+        "master_plan.json"
+      ]
+    }
+  ],
+  "test_matrix": {
+    "smoke": [
+      "python -m pytest -q -k smoke"
+    ],
+    "full": [
+      "python -m pytest -q"
+    ],
+    "notes": "Adjust to your repo."
+  },
+  "stop_conditions": {
+    "max_build_iterations": 5,
+    "max_review_loops": 3,
+    "max_optimize_passes": 2,
+    "max_wall_time_minutes": 90,
+    "max_total_cost_usd": 25,
+    "max_total_tool_calls": 200
+  },
+  "risk_flags": [
+    "Prevent secrets from entering model prompts via redaction."
+  ]
+}
