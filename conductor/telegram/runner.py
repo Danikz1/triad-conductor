@@ -21,7 +21,7 @@ from .formatting import format_final_report, format_phase_change, format_status
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 2
-PROJECT_ROOT_DEFAULT = Path(__file__).resolve().parents[2]  # triad-conductor-template/
+PROJECT_ROOT_DEFAULT = Path(__file__).resolve().parents[2]  # triad-conductor/
 
 
 @dataclass
@@ -80,30 +80,28 @@ class RunnerManager:
         run_id = f"tg-{uuid.uuid4().hex[:8]}"
 
         # Write task to file
-        runs_dir = root / "runs" / run_id
-        runs_dir.mkdir(parents=True, exist_ok=True)
-        task_file = runs_dir / "task.md"
+        task_dir = root / "tasks"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        task_file = task_dir / f"{run_id}.md"
         task_file.write_text(task_text, encoding="utf-8")
 
-        # Build command
-        conductor_script = root / "conductor" / "skeleton_conductor.py"
+        # Build command — matches conductor.py CLI
+        conductor_script = root / "conductor.py"
         cmd = [
             sys.executable,
             str(conductor_script),
             "run",
             "--task", str(task_file),
             "--run-id", run_id,
+            "--config", str(config_path or root / "config.yaml"),
         ]
-
-        env = os.environ.copy()
         if dry_run:
-            env["CONDUCTOR_DRY_RUN"] = "1"
+            cmd.append("--dry-run")
 
         logger.info("Starting conductor: %s", " ".join(cmd))
         proc = subprocess.Popen(
             cmd,
             cwd=str(root),
-            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -145,7 +143,6 @@ class RunnerManager:
 
                 # Check if process exited
                 if run.process.poll() is not None:
-                    # Send final status
                     await self._send_completion(run, state_path)
                     break
 

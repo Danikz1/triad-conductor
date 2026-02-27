@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONDUCTOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="$CONDUCTOR_ROOT/.venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="${PYTHON:-python3}"
+fi
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: triad-start [project_description.md] [--dry-run]"
+  echo "Run this command from your target project folder."
+  echo "If no file is passed, it auto-uses project.md or the only .md file in the folder."
+  exit 0
+fi
+
+TASK_PATH=""
+EXTRA_ARGS=()
+for arg in "$@"; do
+  if [[ "$arg" == --* ]]; then
+    EXTRA_ARGS+=("$arg")
+  elif [[ -z "$TASK_PATH" ]]; then
+    TASK_PATH="$arg"
+  else
+    EXTRA_ARGS+=("$arg")
+  fi
+done
+
+if [[ -z "$TASK_PATH" ]]; then
+  if [[ -f "project.md" ]]; then
+    TASK_PATH="project.md"
+  elif [[ -f "PROJECT.md" ]]; then
+    TASK_PATH="PROJECT.md"
+  else
+    mapfile -t MD_FILES < <(find . -maxdepth 1 -type f -name "*.md" | sed 's|^\./||' | sort)
+    if [[ "${#MD_FILES[@]}" -eq 1 ]]; then
+      TASK_PATH="${MD_FILES[0]}"
+    else
+      echo "Usage: $0 <project_description.md>"
+      echo "Tip: create project.md, then run $0"
+      exit 2
+    fi
+  fi
+fi
+
+if [[ ! -f "$TASK_PATH" ]]; then
+  echo "Task file not found: $TASK_PATH"
+  exit 2
+fi
+
+PROJECT_ROOT="$(pwd)"
+RUN_ID="run_$(date -u +%Y%m%d_%H%M%SZ)"
+CONFIG_PATH="$CONDUCTOR_ROOT/config.yaml"
+
+# Bootstrap git repo if needed so conductor worktrees/branches can run.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "No git repository found. Initializing one in $PROJECT_ROOT..."
+  git init -b main >/dev/null
+fi
+
+if ! git show-ref --verify --quiet refs/heads/main; then
+  CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+  if [[ -n "$CURRENT_BRANCH" && "$CURRENT_BRANCH" != "HEAD" ]]; then
+    git branch main "$CURRENT_BRANCH" >/dev/null 2>&1 || true
+  fi
+fi
+
+if ! git rev-parse HEAD >/dev/null 2>&1; then
+  if ! git config user.email >/dev/null 2>&1; then
+    git config user.email "triad@local"
+  fi
+  if ! git config user.name >/dev/null 2>&1; then
+    git config user.name "Triad Conductor"
+  fi
+  git add -A
+  git commit --allow-empty -m "Initial commit for Triad Conductor run" >/dev/null
+fi
+
+echo "Starting Triad Conductor"
+echo "Project root: $PROJECT_ROOT"
+echo "Task file: $TASK_PATH"
+echo "Run id: $RUN_ID"
+
+exec "$PYTHON_BIN" "$CONDUCTOR_ROOT/conductor.py" run \
+  --task "$TASK_PATH" \
+  --config "$CONFIG_PATH" \
+  --project-root "$PROJECT_ROOT" \
+  --run-id "$RUN_ID" \
+  "${EXTRA_ARGS[@]}"
