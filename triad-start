@@ -2,28 +2,57 @@
 set -euo pipefail
 
 CONDUCTOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_PROJECTS_HOME="/Users/daniyarserikson/Projects"
+PROJECTS_HOME="${TRIAD_PROJECTS_HOME:-$DEFAULT_PROJECTS_HOME}"
 PYTHON_BIN="$CONDUCTOR_ROOT/.venv/bin/python"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="${PYTHON:-python3}"
 fi
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "Usage: triad-start [project_description.md] [--dry-run]"
-  echo "Run this command from your target project folder."
-  echo "If no file is passed, it auto-uses project.md or the only .md file in the folder."
+  echo "Usage: triad-start [project_description.md] [--project-name NAME] [--dry-run]"
+  echo "Default behavior: creates/uses a project folder under $DEFAULT_PROJECTS_HOME."
+  echo "If no markdown file is passed, it auto-uses project.md or the only .md file in the current folder."
+  echo "Options:"
+  echo "  --project-name NAME     Explicit project folder name"
+  echo "  --projects-home PATH    Override projects root (default: $DEFAULT_PROJECTS_HOME)"
+  echo "  --use-current-dir       Use current directory as project root (legacy behavior)"
+  echo "Env:"
+  echo "  TRIAD_PROJECTS_HOME     Default projects root (same as --projects-home)"
   exit 0
 fi
 
 TASK_PATH=""
+PROJECT_NAME=""
+USE_CURRENT_DIR=0
 EXTRA_ARGS=()
-for arg in "$@"; do
-  if [[ "$arg" == --* ]]; then
+i=1
+while [[ $i -le $# ]]; do
+  arg="${!i}"
+  if [[ "$arg" == "--project-name" ]]; then
+    ((i++))
+    if [[ $i -gt $# ]]; then
+      echo "Missing value for --project-name"
+      exit 2
+    fi
+    PROJECT_NAME="${!i}"
+  elif [[ "$arg" == "--projects-home" ]]; then
+    ((i++))
+    if [[ $i -gt $# ]]; then
+      echo "Missing value for --projects-home"
+      exit 2
+    fi
+    PROJECTS_HOME="${!i}"
+  elif [[ "$arg" == "--use-current-dir" ]]; then
+    USE_CURRENT_DIR=1
+  elif [[ "$arg" == --* ]]; then
     EXTRA_ARGS+=("$arg")
   elif [[ -z "$TASK_PATH" ]]; then
     TASK_PATH="$arg"
   else
     EXTRA_ARGS+=("$arg")
   fi
+  ((i++))
 done
 
 if [[ -z "$TASK_PATH" ]]; then
@@ -48,7 +77,35 @@ if [[ ! -f "$TASK_PATH" ]]; then
   exit 2
 fi
 
-PROJECT_ROOT="$(pwd)"
+TASK_PATH_ABS="$(cd "$(dirname "$TASK_PATH")" && pwd)/$(basename "$TASK_PATH")"
+
+if [[ "$USE_CURRENT_DIR" -eq 1 ]]; then
+  PROJECT_ROOT="$(pwd)"
+else
+  if [[ -z "$PROJECT_NAME" ]]; then
+    PROJECT_NAME="$(awk '/^#/{sub(/^# +/,""); print; exit}' "$TASK_PATH_ABS" | tr -d '\r' || true)"
+  fi
+  if [[ -z "$PROJECT_NAME" ]]; then
+    PROJECT_NAME="$(basename "$TASK_PATH_ABS")"
+    PROJECT_NAME="${PROJECT_NAME%.md}"
+  fi
+  PROJECT_NAME="$(printf '%s' "$PROJECT_NAME" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  PROJECT_DIR_NAME="$(printf '%s' "$PROJECT_NAME" | sed -E 's#[/\\]+#-#g; s/[[:space:]]+/-/g')"
+  if [[ -z "$PROJECT_DIR_NAME" ]]; then
+    PROJECT_DIR_NAME="project_$(date -u +%Y%m%d_%H%M%SZ)"
+  fi
+
+  PROJECT_ROOT="$PROJECTS_HOME/$PROJECT_DIR_NAME"
+  mkdir -p "$PROJECT_ROOT"
+
+  TARGET_TASK_PATH="$PROJECT_ROOT/project.md"
+  if [[ "$TASK_PATH_ABS" != "$TARGET_TASK_PATH" ]]; then
+    cp "$TASK_PATH_ABS" "$TARGET_TASK_PATH"
+  fi
+  TASK_PATH="$TARGET_TASK_PATH"
+fi
+
+cd "$PROJECT_ROOT"
 RUN_ID="run_$(date -u +%Y%m%d_%H%M%SZ)"
 CONFIG_PATH="$CONDUCTOR_ROOT/config.yaml"
 

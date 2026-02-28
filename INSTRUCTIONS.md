@@ -3,9 +3,9 @@
 This repository is the **orchestrator**.  
 Your actual coding project can be in any separate folder.
 
-## 0. One-command start (from any project folder)
+## 0. One-command start (auto project folder under `/Users/daniyarserikson/Projects`)
 
-From your target project folder:
+From any folder (for example where your `project.md` is):
 
 ```bash
 /Users/daniyarserikson/Projects/triad-conductor/triad-start project.md
@@ -13,14 +13,41 @@ From your target project folder:
 
 What it does:
 - Uses `project.md` as your project description
+- Creates or reuses a project folder at:
+  - `/Users/daniyarserikson/Projects/<project-name>`
+- Copies task description to `<project-root>/project.md`
 - Bootstraps git if missing
 - Creates a run id
-- Starts Triad Conductor against the current folder
+- Starts Triad Conductor against that project folder
 
 If your description file is named `project.md`, you can run:
 
 ```bash
 /Users/daniyarserikson/Projects/triad-conductor/triad-start
+```
+
+Project name resolution order:
+- `--project-name NAME` if provided
+- first `# Heading` in the markdown file
+- markdown filename without `.md`
+
+Optional flags:
+
+```bash
+# Use explicit project folder name
+/Users/daniyarserikson/Projects/triad-conductor/triad-start project.md --project-name Mukhtar.AI
+
+# Override projects root
+/Users/daniyarserikson/Projects/triad-conductor/triad-start project.md --projects-home /some/other/root
+
+# Legacy behavior: run in current folder
+/Users/daniyarserikson/Projects/triad-conductor/triad-start project.md --use-current-dir
+```
+
+You can also set the default projects root via env var:
+
+```bash
+export TRIAD_PROJECTS_HOME=/Users/daniyarserikson/Projects
 ```
 
 ## 1. Where to paste project description
