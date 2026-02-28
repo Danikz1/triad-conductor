@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
-import tempfile
+import re
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -17,6 +19,7 @@ from .runner import RunnerManager
 logger = logging.getLogger(__name__)
 
 CONDUCTOR_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_PROJECTS_HOME = Path("/Users/daniyarserikson/Projects")
 
 # ── Access control ──
 
@@ -54,6 +57,128 @@ def _set_pending_task(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
 
 def _clear_pending_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data.pop("pending_task", None)
+    _clear_pending_project_root(context)
+
+
+def _get_pending_project_root(context: ContextTypes.DEFAULT_TYPE) -> Optional[Path]:
+    raw = context.chat_data.get("pending_project_root")
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def _set_pending_project_root(context: ContextTypes.DEFAULT_TYPE, path: Path) -> None:
+    context.chat_data["pending_project_root"] = str(path)
+
+
+def _clear_pending_project_root(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.chat_data.pop("pending_project_root", None)
+
+
+def _sanitize_project_dir_name(name: str) -> str:
+    cleaned = re.sub(r"[/\\\\]+", "-", (name or "").strip())
+    cleaned = re.sub(r"\s+", "-", cleaned)
+    cleaned = cleaned.strip("-")
+    if cleaned:
+        return cleaned
+    ts = dt.datetime.utcnow().strftime("%Y%m%d_%H%M%SZ")
+    return f"project_{ts}"
+
+
+def _extract_project_name_from_markdown(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return "Untitled Project"
+
+
+def _prepare_project_root(project_name: str, task_text: str) -> Path:
+    projects_home = Path(os.environ.get("TRIAD_PROJECTS_HOME", str(DEFAULT_PROJECTS_HOME))).expanduser()
+    projects_home.mkdir(parents=True, exist_ok=True)
+    project_dir_name = _sanitize_project_dir_name(project_name)
+    project_root = projects_home / project_dir_name
+    project_root.mkdir(parents=True, exist_ok=True)
+    (project_root / "project.md").write_text(task_text, encoding="utf-8")
+    return project_root
+
+
+def _run_git(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result
+
+
+def _ensure_git_repo(project_root: Path) -> None:
+    project_root.mkdir(parents=True, exist_ok=True)
+    inside_repo = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=str(project_root),
+        text=True,
+        capture_output=True,
+    )
+    if inside_repo.returncode != 0:
+        _run_git(["init", "-b", "main"], cwd=project_root, check=True)
+
+    has_main = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", "refs/heads/main"],
+        cwd=str(project_root),
+        text=True,
+        capture_output=True,
+    )
+    if has_main.returncode != 0:
+        current_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(project_root),
+            text=True,
+            capture_output=True,
+        )
+        branch_name = (current_branch.stdout or "").strip()
+        if branch_name and branch_name != "HEAD":
+            subprocess.run(
+                ["git", "branch", "main", branch_name],
+                cwd=str(project_root),
+                text=True,
+                capture_output=True,
+            )
+
+    has_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(project_root),
+        text=True,
+        capture_output=True,
+    )
+    if has_head.returncode != 0:
+        has_user_email = subprocess.run(
+            ["git", "config", "user.email"],
+            cwd=str(project_root),
+            text=True,
+            capture_output=True,
+        )
+        if has_user_email.returncode != 0:
+            _run_git(["config", "user.email", "triad@local"], cwd=project_root, check=True)
+
+        has_user_name = subprocess.run(
+            ["git", "config", "user.name"],
+            cwd=str(project_root),
+            text=True,
+            capture_output=True,
+        )
+        if has_user_name.returncode != 0:
+            _run_git(["config", "user.name", "Triad Conductor"], cwd=project_root, check=True)
+
+        _run_git(["add", "-A"], cwd=project_root, check=True)
+        _run_git(
+            ["commit", "--allow-empty", "-m", "Initial commit for Triad Conductor run"],
+            cwd=project_root,
+            check=True,
+        )
 
 
 # ── Handlers ──
@@ -115,6 +240,18 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         idx = args.index("--project-root")
         if idx + 1 < len(args):
             project_root = Path(args[idx + 1])
+    else:
+        project_root = _get_pending_project_root(context)
+
+    if project_root is not None:
+        try:
+            project_root = project_root.expanduser()
+            project_root.mkdir(parents=True, exist_ok=True)
+            _ensure_git_repo(project_root)
+        except Exception as exc:
+            logger.exception("Failed to prepare project root %s", project_root)
+            await update.message.reply_text(f"Failed to prepare project root: {exc}")
+            return
 
     try:
         run_id = await runner.start_run(
@@ -130,9 +267,10 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _clear_pending_task(context)
     mode = " (dry-run)" if dry_run else ""
+    project_line = f"\nProject root: <code>{project_root}</code>" if project_root else ""
     await update.message.reply_text(
         f"\U0001f680 Run <code>{run_id}</code> started{mode}.\n"
-        f"I'll send phase transition updates as the conductor progresses.",
+        f"I'll send phase transition updates as the conductor progresses.{project_line}",
         parse_mode="HTML",
     )
 
@@ -330,7 +468,19 @@ async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         # Store the approved task as pending so /run can pick it up
         approved_task = Path(task_path).read_text(encoding="utf-8") if task_path else ""
         if approved_task:
+            project_name = (
+                (engine.refined_spec or {}).get("project_name")
+                or _extract_project_name_from_markdown(approved_task)
+            )
+            project_root = _prepare_project_root(project_name, approved_task)
+            _ensure_git_repo(project_root)
             _set_pending_task(context, approved_task)
+            _set_pending_project_root(context, project_root)
+            await update.message.reply_text(
+                f"Project folder prepared: <code>{project_root}</code>\n"
+                f"Run /run to start development there.",
+                parse_mode="HTML",
+            )
 
         _clear_refiner(context)
 
@@ -457,6 +607,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # No active refiner — store as pending task
     _set_pending_task(context, text)
+    _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
     await update.message.reply_text(
         f"\U0001f4dd Task stored. Preview:\n<pre>{preview}</pre>\n\n"
@@ -489,6 +640,7 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     _set_pending_task(context, text)
+    _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
     await update.message.reply_text(
         f"\U0001f4ce Task stored from <code>{name}</code>. Preview:\n<pre>{preview}</pre>\n\n"
