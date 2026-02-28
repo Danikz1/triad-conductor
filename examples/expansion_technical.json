@@ -1,0 +1,38 @@
+{
+  "kind": "expansion",
+  "role": "technical_analyst",
+  "agent": {"name": "codex", "model": "codex-mini-latest"},
+  "interpretation": "A Python-based spec-refinement pipeline that orchestrates three LLM calls in parallel, scores outputs heuristically, and merges them via an arbiter model call.",
+  "requirements": {
+    "must": [
+      "Parallel invocation of 3 LLM models with distinct role prompts",
+      "Heuristic scoring of each expansion on clarity, feasibility, coverage, consistency, specificity",
+      "Arbiter model synthesises scored expansions into a single refined spec"
+    ],
+    "should": [
+      "JSON schema validation at every pipeline boundary",
+      "Cost tracking with configurable cap ($5 default for ideation)"
+    ],
+    "could": [
+      "Retry with validation-error injection on schema failures"
+    ],
+    "wont": [
+      "Fine-tune or train custom models"
+    ]
+  },
+  "assumptions": [
+    {"assumption": "All three model CLIs (claude, codex, gemini) are installed and on PATH", "confidence": "high", "needs_confirmation": true},
+    {"assumption": "Network latency is acceptable for parallel calls (~10-30s)", "confidence": "medium", "needs_confirmation": false}
+  ],
+  "open_questions": [
+    {"question": "Should we cache expansion results to avoid re-calling on minor feedback?", "impact": "low", "default_answer": "No, re-expand each time for freshness"}
+  ],
+  "risks": [
+    {"severity": "high", "risk": "Model API rate limits during parallel calls", "suggestion": "Sequential fallback with exponential backoff"},
+    {"severity": "medium", "risk": "Schema validation rejects valid creative output", "suggestion": "One retry with error context injected into prompt"}
+  ],
+  "success_criteria": [
+    "Pipeline completes in under 60 seconds for a typical idea",
+    "All output artifacts pass JSON schema validation"
+  ]
+}

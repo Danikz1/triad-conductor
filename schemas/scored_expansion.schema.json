@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScoredExpansion",
+  "description": "Scoring output for a single expansion.",
+  "type": "object",
+  "required": ["expansion_id", "role", "scores", "weighted_total", "section_rankings", "flags"],
+  "additionalProperties": false,
+  "properties": {
+    "expansion_id": { "type": "integer", "minimum": 0 },
+    "role": {
+      "type": "string",
+      "enum": ["scope_definer", "technical_analyst", "user_advocate"]
+    },
+    "scores": {
+      "type": "object",
+      "required": ["clarity", "feasibility", "coverage", "consistency", "specificity"],
+      "properties": {
+        "clarity": { "type": "number", "minimum": 0, "maximum": 10 },
+        "feasibility": { "type": "number", "minimum": 0, "maximum": 10 },
+        "coverage": { "type": "number", "minimum": 0, "maximum": 10 },
+        "consistency": { "type": "number", "minimum": 0, "maximum": 10 },
+        "specificity": { "type": "number", "minimum": 0, "maximum": 10 }
+      },
+      "additionalProperties": false
+    },
+    "weighted_total": { "type": "number", "minimum": 0, "maximum": 10 },
+    "section_rankings": {
+      "type": "object",
+      "description": "Rank (1=best) of this expansion per section relative to the others.",
+      "additionalProperties": { "type": "integer", "minimum": 1 }
+    },
+    "flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Constraint violations or low-confidence warnings."
+    }
+  }
+}

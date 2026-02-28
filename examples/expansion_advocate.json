@@ -1,0 +1,38 @@
+{
+  "kind": "expansion",
+  "role": "user_advocate",
+  "agent": {"name": "gemini", "model": "gemini-2.5-pro"},
+  "interpretation": "From the end user's perspective, this tool should feel like talking to a knowledgeable product manager who asks the right questions and produces a spec the user feels confident handing off to a development team.",
+  "requirements": {
+    "must": [
+      "Present spec in human-readable format with clear section headings",
+      "Highlight decisions that need user input with suggested defaults",
+      "Allow users to approve, reject, or provide targeted feedback"
+    ],
+    "should": [
+      "Show which model contributed each requirement for transparency",
+      "Converge within 2-3 feedback rounds for typical ideas"
+    ],
+    "could": [
+      "Provide a diff view between spec versions"
+    ],
+    "wont": [
+      "Require users to understand the underlying model architecture"
+    ]
+  },
+  "assumptions": [
+    {"assumption": "Users prefer structured decisions over open-ended prompts", "confidence": "medium", "needs_confirmation": true},
+    {"assumption": "Most ideas can be adequately specified in 1-3 pages", "confidence": "high", "needs_confirmation": false}
+  ],
+  "open_questions": [
+    {"question": "Should the tool explain why certain requirements were prioritised differently?", "impact": "medium", "default_answer": "Yes, brief rationale per requirement"}
+  ],
+  "risks": [
+    {"severity": "medium", "risk": "Users may feel overwhelmed by too many decisions at once", "suggestion": "Batch decisions and surface only critical ones first"},
+    {"severity": "low", "risk": "Feedback loop feels slow due to re-expansion", "suggestion": "Skip re-expansion for minor feedback, re-synthesise only"}
+  ],
+  "success_criteria": [
+    "User can go from raw idea to approved spec in under 10 minutes",
+    "Spec includes all information needed to start development without further clarification"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "kind": "expansion",
+  "role": "scope_definer",
+  "agent": {"name": "claude", "model": "claude-sonnet-4-20250514"},
+  "interpretation": "A CLI tool that takes a natural-language project idea and produces a structured, validated specification through multi-model triangulation.",
+  "requirements": {
+    "must": [
+      "Accept free-form text input describing a project idea",
+      "Produce a structured spec with MoSCoW-prioritised requirements",
+      "Support iterative user feedback loop before approval"
+    ],
+    "should": [
+      "Estimate project complexity (S/M/L/XL)",
+      "Identify risks and suggest mitigations"
+    ],
+    "could": [
+      "Generate a visual dependency graph of requirements"
+    ],
+    "wont": [
+      "Generate actual implementation code"
+    ]
+  },
+  "assumptions": [
+    {"assumption": "Single user operates the system", "confidence": "medium", "needs_confirmation": true},
+    {"assumption": "Ideas are described in English", "confidence": "high", "needs_confirmation": false}
+  ],
+  "open_questions": [
+    {"question": "Should the spec include time estimates?", "impact": "medium", "default_answer": "No, only complexity class"}
+  ],
+  "risks": [
+    {"severity": "medium", "risk": "Ambiguous input may lead to divergent expansions", "suggestion": "Score and flag low-clarity expansions"}
+  ],
+  "success_criteria": [
+    "Approved spec has zero unresolved decisions",
+    "All MUST requirements have clear acceptance criteria"
+  ]
+}

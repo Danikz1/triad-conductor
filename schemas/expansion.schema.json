@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Expansion",
+  "description": "Output from one of the three expert-role expanders.",
+  "type": "object",
+  "required": [
+    "kind", "role", "agent", "interpretation",
+    "requirements", "assumptions", "open_questions",
+    "risks", "success_criteria"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "expansion" },
+    "role": {
+      "type": "string",
+      "enum": ["scope_definer", "technical_analyst", "user_advocate"]
+    },
+    "agent": {
+      "type": "object",
+      "required": ["name", "model"],
+      "properties": {
+        "name": { "type": "string" },
+        "model": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "interpretation": {
+      "type": "string",
+      "minLength": 20,
+      "description": "The expander's interpretation of what the user wants to build."
+    },
+    "requirements": {
+      "type": "object",
+      "required": ["must", "should", "could", "wont"],
+      "properties": {
+        "must": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "should": { "type": "array", "items": { "type": "string" } },
+        "could": { "type": "array", "items": { "type": "string" } },
+        "wont": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["assumption", "confidence", "needs_confirmation"],
+        "properties": {
+          "assumption": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "needs_confirmation": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question", "impact", "default_answer"],
+        "properties": {
+          "question": { "type": "string" },
+          "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "default_answer": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk", "severity", "suggestion"],
+        "properties": {
+          "risk": { "type": "string" },
+          "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+          "suggestion": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    }
+  }
+}

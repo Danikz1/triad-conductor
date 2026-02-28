@@ -1,0 +1,73 @@
+{
+  "kind": "refined_spec",
+  "version": 1,
+  "project_name": "Triad Architect",
+  "one_liner": "Multi-model idea refinement pipeline that produces validated, approved specs for development.",
+  "problem_statement": "Raw project ideas lack the structure, completeness, and specificity needed to start development. Manual spec writing is time-consuming and biased by a single perspective.",
+  "requirements": {
+    "must": [
+      {"id": "R1", "text": "Accept free-form text input describing a project idea", "rationale": "Core input mechanism", "consensus": "3/3", "source": "scope_definer, user_advocate"},
+      {"id": "R2", "text": "Produce MoSCoW-prioritised requirements via 3-model triangulation", "rationale": "Central value proposition", "consensus": "3/3", "source": "scope_definer, technical_analyst"},
+      {"id": "R3", "text": "Support iterative user feedback with structured review protocol", "rationale": "Essential for user control", "consensus": "3/3", "source": "scope_definer, user_advocate"},
+      {"id": "R4", "text": "Heuristic scoring of expansions before synthesis", "rationale": "Quality gate", "consensus": "2/3", "source": "technical_analyst"},
+      {"id": "R5", "text": "JSON schema validation at pipeline boundaries", "rationale": "Reliability", "consensus": "2/3", "source": "technical_analyst"}
+    ],
+    "should": [
+      {"id": "R6", "text": "Estimate complexity (S/M/L/XL) and milestone count", "rationale": "Planning utility", "consensus": "2/3", "source": "scope_definer"},
+      {"id": "R7", "text": "Track and display cost with configurable cap", "rationale": "Budget safety", "consensus": "2/3", "source": "technical_analyst"},
+      {"id": "R8", "text": "Show source attribution for each requirement", "rationale": "Transparency", "consensus": "2/3", "source": "user_advocate"}
+    ],
+    "could": [
+      {"id": "R9", "text": "Provide diff view between spec versions", "rationale": "Nice-to-have for iteration"},
+      {"id": "R10", "text": "Cache expansion results for minor feedback rounds", "rationale": "Performance optimisation"}
+    ],
+    "wont": [
+      {"id": "R11", "text": "Generate implementation code", "rationale": "Out of scope — handled by Conductor"},
+      {"id": "R12", "text": "Fine-tune or train custom models", "rationale": "Uses existing model APIs"}
+    ]
+  },
+  "decisions_needed": [
+    {
+      "id": "D1",
+      "question": "Should the tool explain prioritisation reasoning to the user?",
+      "impact": "medium",
+      "perspectives": {
+        "scope_definer": "Optional, adds document length",
+        "technical_analyst": "Adds prompt complexity",
+        "user_advocate": "Increases trust and understanding"
+      },
+      "recommendation": "Yes, include brief rationale per requirement",
+      "default": "yes"
+    }
+  ],
+  "assumptions": [
+    {"id": "A1", "assumption": "Single user operates the system", "confidence": "medium", "needs_confirmation": true},
+    {"id": "A2", "assumption": "Ideas are described in English", "confidence": "high", "needs_confirmation": false},
+    {"id": "A3", "assumption": "All three model CLIs are installed and on PATH", "confidence": "high", "needs_confirmation": true}
+  ],
+  "success_criteria": [
+    "User can go from raw idea to approved spec in under 10 minutes",
+    "Approved spec has zero unresolved decisions",
+    "All MUST requirements have clear acceptance criteria",
+    "Pipeline completes in under 60 seconds per iteration",
+    "All output artifacts pass JSON schema validation"
+  ],
+  "risks": [
+    {"severity": "high", "risk": "Model API rate limits during parallel calls", "mitigation": "Sequential fallback with exponential backoff"},
+    {"severity": "medium", "risk": "Ambiguous input leads to divergent expansions", "mitigation": "Score and flag low-clarity expansions"},
+    {"severity": "medium", "risk": "Users overwhelmed by too many decisions", "mitigation": "Batch and surface only critical decisions first"},
+    {"severity": "low", "risk": "Feedback loop feels slow", "mitigation": "Skip re-expansion for minor feedback"}
+  ],
+  "suggested_tech_stack": {
+    "language": "Python 3.11+",
+    "key_libraries": ["python-telegram-bot", "pyyaml", "jsonschema"]
+  },
+  "estimated_complexity": "M",
+  "estimated_milestones": 3,
+  "chosen_sections_by_source": {
+    "requirements_must": {"source": "scope_definer", "rationale": "Best structured requirements with clear boundaries"},
+    "risks": {"source": "technical_analyst", "rationale": "Most thorough risk analysis with concrete mitigations"},
+    "assumptions": {"source": "user_advocate", "rationale": "Best identified user-facing assumptions needing confirmation"}
+  },
+  "unresolved_items": ["D1", "A1", "A3"]
+}

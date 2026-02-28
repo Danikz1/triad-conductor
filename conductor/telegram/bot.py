@@ -13,8 +13,12 @@ from telegram.ext import (
 )
 
 from .handlers import (
+    approve_cmd,
     file_message,
     help_cmd,
+    history_cmd,
+    refine_cmd,
+    reject_cmd,
     run_cmd,
     start_cmd,
     status_cmd,
@@ -40,12 +44,18 @@ def create_application():
     # Inject RunnerManager into bot_data so handlers can access it
     app.bot_data["runner"] = RunnerManager(bot=app.bot)
 
-    # Command handlers
+    # Command handlers — development
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("run", run_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("stop", stop_cmd))
+
+    # Command handlers — Triad Architect (idea refinement)
+    app.add_handler(CommandHandler("refine", refine_cmd))
+    app.add_handler(CommandHandler("approve", approve_cmd))
+    app.add_handler(CommandHandler("reject", reject_cmd))
+    app.add_handler(CommandHandler("history", history_cmd))
 
     # Message handlers (order matters: documents before text)
     app.add_handler(MessageHandler(filters.Document.ALL, file_message))

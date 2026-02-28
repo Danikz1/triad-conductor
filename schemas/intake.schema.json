@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intake",
+  "description": "Normalized intake record from a raw project idea.",
+  "type": "object",
+  "required": ["raw_text", "detected_constraints", "domain_hints", "ambiguity_level"],
+  "additionalProperties": false,
+  "properties": {
+    "raw_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The original idea text submitted by the user."
+    },
+    "detected_constraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit constraints extracted from the raw text."
+    },
+    "domain_hints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Inferred domain categories (e.g. mobile, data, web)."
+    },
+    "ambiguity_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "How ambiguous the raw idea is."
+    }
+  }
+}

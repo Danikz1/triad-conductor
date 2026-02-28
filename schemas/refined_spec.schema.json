@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RefinedSpec",
+  "description": "Unified project specification produced by the arbiter.",
+  "type": "object",
+  "required": [
+    "kind", "version", "project_name", "one_liner", "problem_statement",
+    "requirements", "decisions_needed", "assumptions", "success_criteria",
+    "risks", "estimated_complexity", "estimated_milestones",
+    "chosen_sections_by_source", "unresolved_items"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "refined_spec" },
+    "version": { "type": "integer", "minimum": 1 },
+    "project_name": { "type": "string", "minLength": 1 },
+    "one_liner": { "type": "string", "minLength": 10 },
+    "problem_statement": { "type": "string", "minLength": 20 },
+    "requirements": {
+      "type": "object",
+      "required": ["must", "should", "could", "wont"],
+      "properties": {
+        "must": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "rationale", "consensus", "source"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^R[0-9]+$" },
+              "text": { "type": "string" },
+              "rationale": { "type": "string" },
+              "consensus": { "type": "string" },
+              "source": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "should": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "rationale"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^R[0-9]+$" },
+              "text": { "type": "string" },
+              "rationale": { "type": "string" },
+              "consensus": { "type": "string" },
+              "source": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "could": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "rationale"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^R[0-9]+$" },
+              "text": { "type": "string" },
+              "rationale": { "type": "string" },
+              "consensus": { "type": "string" },
+              "source": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "wont": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "text", "rationale"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^R[0-9]+$" },
+              "text": { "type": "string" },
+              "rationale": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "decisions_needed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "impact", "perspectives", "recommendation", "default"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^D[0-9]+$" },
+          "question": { "type": "string" },
+          "impact": { "type": "string", "enum": ["low", "medium", "high"] },
+          "perspectives": {
+            "type": "object",
+            "properties": {
+              "scope_definer": { "type": "string" },
+              "technical_analyst": { "type": "string" },
+              "user_advocate": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "recommendation": { "type": "string" },
+          "default": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "assumption", "confidence", "needs_confirmation"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^A[0-9]+$" },
+          "assumption": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "needs_confirmation": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk", "severity", "mitigation"],
+        "properties": {
+          "risk": { "type": "string" },
+          "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+          "mitigation": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "estimated_complexity": {
+      "type": "string",
+      "enum": ["S", "M", "L", "XL"]
+    },
+    "estimated_milestones": { "type": "integer", "minimum": 1 },
+    "suggested_tech_stack": {
+      "type": "object",
+      "properties": {
+        "language": { "type": "string" },
+        "key_libraries": { "type": "array", "items": { "type": "string" } },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "chosen_sections_by_source": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "rationale"],
+        "properties": {
+          "source": { "type": "string" },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unresolved_items": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

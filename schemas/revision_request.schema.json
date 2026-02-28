@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RevisionRequest",
+  "description": "Structured change request from user pushback.",
+  "type": "object",
+  "required": ["version", "resolved_decisions", "corrected_assumptions", "raw_feedback"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["change_type", "target_section", "instruction"],
+        "properties": {
+          "change_type": { "type": "string", "enum": ["add", "remove", "modify"] },
+          "target_section": { "type": "string" },
+          "instruction": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "resolved_decisions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Map of decision ID to user answer, e.g. {\"D1\": \"yes\"}."
+    },
+    "corrected_assumptions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Map of assumption ID to correction, e.g. {\"A1\": \"multi-user\"}."
+    },
+    "raw_feedback": {
+      "type": "string",
+      "description": "Original user text."
+    }
+  }
+}

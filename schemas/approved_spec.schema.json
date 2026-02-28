@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ApprovedSpec",
+  "description": "Frozen, implementation-ready specification after user approval.",
+  "type": "object",
+  "required": [
+    "kind", "approved_at", "approved_by_user_id", "spec_version",
+    "project_name", "one_liner", "problem_statement",
+    "requirements", "success_criteria", "risks",
+    "estimated_complexity", "estimated_milestones"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "approved_spec" },
+    "approved_at": { "type": "string", "description": "ISO 8601 timestamp." },
+    "approved_by_user_id": { "type": "integer" },
+    "spec_version": { "type": "integer", "minimum": 1 },
+    "project_name": { "type": "string", "minLength": 1 },
+    "one_liner": { "type": "string", "minLength": 10 },
+    "problem_statement": { "type": "string", "minLength": 20 },
+    "requirements": {
+      "type": "object",
+      "required": ["must", "should", "could", "wont"],
+      "properties": {
+        "must": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+        "should": { "type": "array", "items": { "type": "object" } },
+        "could": { "type": "array", "items": { "type": "object" } },
+        "wont": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "resolved_decisions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "All decisions resolved during review."
+    },
+    "confirmed_assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "assumption", "confirmed_value"],
+        "properties": {
+          "id": { "type": "string" },
+          "assumption": { "type": "string" },
+          "confirmed_value": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "estimated_complexity": {
+      "type": "string",
+      "enum": ["S", "M", "L", "XL"]
+    },
+    "estimated_milestones": { "type": "integer", "minimum": 1 },
+    "suggested_tech_stack": {
+      "type": "object",
+      "properties": {
+        "language": { "type": "string" },
+        "key_libraries": { "type": "array", "items": { "type": "string" } },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

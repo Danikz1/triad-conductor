@@ -133,4 +133,4 @@ def test_run_propose_blocks_for_normalized_quote_consensus(tmp_path, monkeypatch
 
     assert result["blocked"] is True
     assert state.phase == "REPORT"
-    assert "Use SQLite" in result["reason"]
+    assert "use sqlite" in result["reason"].lower()

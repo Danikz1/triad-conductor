@@ -3,6 +3,7 @@
 Usage:
     python conductor.py run --task <path> --config <path> [--run-id <id>] [--dry-run]
     python conductor.py run --task tasks/my_task.md --config config.yaml
+    python conductor.py ideate --idea <path-or-text> --config <path> [--dry-run]
 
 Exit codes:
     0 = SUCCESS
@@ -97,6 +98,185 @@ def _load_dry_run_examples(run_dir: Path) -> dict:
     return examples
 
 
+def _run_ideate(args):
+    """Run the Triad Architect ideation/refinement loop (CLI mode)."""
+    from conductor.refiner.engine import RefinerEngine
+    from conductor.refiner.formatting import format_refined_spec
+
+    # Load config
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"Config not found: {config_path}", file=sys.stderr)
+        sys.exit(3)
+    config = load_config(config_path)
+
+    # Read idea text
+    idea_path = Path(args.idea)
+    if idea_path.exists():
+        idea_text = idea_path.read_text(encoding="utf-8").strip()
+    else:
+        idea_text = args.idea.strip()
+
+    if not idea_text:
+        print("Idea text is empty.", file=sys.stderr)
+        sys.exit(3)
+
+    # Setup run
+    run_id = args.run_id or f"ideate-{_generate_run_id()}"
+    runs_dir = ROOT / config.runs_dir
+    run_dir = runs_dir / run_id
+
+    # Setup logging
+    run_dir.mkdir(parents=True, exist_ok=True)
+    logger = setup_logging(run_dir)
+    logger.info("Starting ideation run %s (dry_run=%s)", run_id, args.dry_run)
+
+    engine = RefinerEngine(
+        run_id=run_id,
+        run_dir=run_dir,
+        config=config,
+        idea_text=idea_text,
+        constraints=args.constraint,
+        dry_run=args.dry_run,
+    )
+
+    # Load dry-run fixtures if applicable
+    dry_expand = None
+    dry_synth = None
+    if args.dry_run:
+        examples_dir = ROOT / "examples"
+        import json as _json
+        _exp_files = ["expansion_scope.json", "expansion_technical.json", "expansion_advocate.json"]
+        dry_expand = []
+        for f in _exp_files:
+            p = examples_dir / f
+            if p.exists():
+                dry_expand.append(_json.loads(p.read_text(encoding="utf-8")))
+        _synth_path = examples_dir / "refined_spec.json"
+        if _synth_path.exists():
+            dry_synth = _json.loads(_synth_path.read_text(encoding="utf-8"))
+
+    # Phase 0: Intake
+    print(f"\n=== Triad Architect: {run_id} ===\n")
+    engine.run_intake()
+
+    iteration = 0
+    while True:
+        iteration += 1
+        print(f"--- Iteration {iteration} ---")
+
+        # Expand + Score
+        print("Running EXPAND (3 perspectives) + SCORE...")
+        expand_result = engine.run_expand_and_score(dry_run_responses=dry_expand)
+        if expand_result.get("blocked"):
+            print(f"BLOCKED: {expand_result.get('reason', 'unknown')}", file=sys.stderr)
+            sys.exit(1)
+
+        # Synthesize
+        print("Running SYNTHESIZE...")
+        synth_result = engine.run_synthesize(dry_run_response=dry_synth)
+        if synth_result.get("blocked"):
+            print(f"BLOCKED: {synth_result.get('reason', 'unknown')}", file=sys.stderr)
+            sys.exit(1)
+
+        # Display spec
+        spec = synth_result["refined_spec"]
+        print("\n" + _format_spec_cli(spec) + "\n")
+
+        # Cost check
+        cost_warning = engine.check_cost_cap()
+        if cost_warning:
+            print(f"WARNING: {cost_warning}")
+
+        # Auto-approve if converged and flag set
+        from conductor.refiner.reviewer import is_converged
+        if args.auto_approve and is_converged(spec):
+            print("Spec converged — auto-approving.")
+            user_text = "approve"
+        else:
+            # Interactive review
+            print("Options: 'approve', 'reject', or send feedback (D1: answer / A1: correction / free text)")
+            try:
+                user_text = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                sys.exit(3)
+
+        if not user_text:
+            continue
+
+        result = engine.handle_review(user_text)
+        action = result.get("action")
+
+        if action == "approved":
+            print("\nSpec approved! Running handoff...")
+            config_path_abs = Path(args.config).resolve()
+            handoff = engine.run_handoff(user_id=0, base_config_path=config_path_abs)
+            print(f"Task spec: {handoff['task_path']}")
+            print(f"Scaled config: {handoff['config_path']}")
+            print(f"\nTo start development:\n  python conductor.py run --task {handoff['task_path']} --config {handoff['config_path']}")
+            sys.exit(0)
+
+        if action == "rejected":
+            print("Refinement rejected.")
+            sys.exit(0)
+
+        if action == "max_iterations":
+            print(result["message"])
+            continue
+
+        if action == "revise":
+            needs_re_expand = result.get("needs_re_expand", False)
+            if not needs_re_expand:
+                print("Minor feedback — re-synthesizing only...")
+                # Skip expand, go straight to synthesize on next loop body
+                print("Running SYNTHESIZE...")
+                synth_result = engine.run_synthesize(dry_run_response=dry_synth)
+                if synth_result.get("blocked"):
+                    print(f"BLOCKED: {synth_result.get('reason', 'unknown')}", file=sys.stderr)
+                    sys.exit(1)
+                spec = synth_result["refined_spec"]
+                print("\n" + _format_spec_cli(spec) + "\n")
+                continue
+            # else: needs re-expand, loop will handle it
+
+
+def _format_spec_cli(spec: dict) -> str:
+    """Format a refined spec for CLI display (plain text)."""
+    lines = [
+        f"=== Refined Spec v{spec.get('version', '?')}: \"{spec.get('project_name', '?')}\" ===",
+        f"  {spec.get('one_liner', '')}",
+        "",
+    ]
+    reqs = spec.get("requirements", {})
+    for priority in ("must", "should", "could", "wont"):
+        items = reqs.get(priority, [])
+        if items:
+            lines.append(f"  {priority.upper()}:")
+            for r in items:
+                lines.append(f"    {r.get('id', '?')}: {r.get('text', '')}")
+
+    decisions = spec.get("decisions_needed", [])
+    if decisions:
+        lines.append("\n  DECISIONS NEEDED:")
+        for d in decisions:
+            lines.append(f"    {d['id']}: {d['question']}")
+            lines.append(f"      Recommendation: {d.get('recommendation', '?')}")
+
+    assumptions = [a for a in spec.get("assumptions", []) if a.get("needs_confirmation")]
+    if assumptions:
+        lines.append("\n  ASSUMPTIONS (need confirmation):")
+        for a in assumptions:
+            lines.append(f"    {a['id']}: {a['assumption']}")
+
+    lines.append(f"\n  Complexity: {spec.get('estimated_complexity', '?')} | Milestones: {spec.get('estimated_milestones', '?')}")
+
+    if not decisions and not assumptions:
+        lines.append("  [CONVERGED — ready to approve]")
+
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Triad Conductor — Multi-model coding workflow")
     sub = ap.add_subparsers(dest="cmd")
@@ -109,7 +289,17 @@ def main():
     run_parser.add_argument("--project-root", default=None, help="Target project root (for git operations)")
     run_parser.add_argument("--resume", action="store_true", help="Resume an existing run from state.json/context.json")
 
+    ideate_parser = sub.add_parser("ideate", help="Refine an idea with Triad Architect before development")
+    ideate_parser.add_argument("--idea", required=True, help="Path to idea file (.md/.txt) or inline text")
+    ideate_parser.add_argument("--config", default="config.yaml", help="Path to config YAML")
+    ideate_parser.add_argument("--run-id", default=None, help="Explicit run ID (auto-generated if omitted)")
+    ideate_parser.add_argument("--dry-run", action="store_true", help="Use canned example responses instead of calling models")
+    ideate_parser.add_argument("--constraint", action="append", default=[], help="Add a constraint (repeatable)")
+    ideate_parser.add_argument("--auto-approve", action="store_true", help="Auto-approve on convergence (no user interaction)")
+
     args = ap.parse_args()
+    if args.cmd == "ideate":
+        return _run_ideate(args)
     if args.cmd != "run":
         ap.print_help()
         sys.exit(3)
