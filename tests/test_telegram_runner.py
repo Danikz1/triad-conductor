@@ -82,6 +82,7 @@ def test_runner_forwards_project_root_and_dry_run(monkeypatch, tmp_path):
     idx = cmd.index("--project-root")
     assert cmd[idx + 1] == str(target_root)
     assert captured["cwd"] == str(conductor_root)
+    assert manager._runs[1].project_root == target_root
 
 
 def test_runner_omits_optional_flags_when_not_provided(monkeypatch, tmp_path):
@@ -114,3 +115,4 @@ def test_runner_omits_optional_flags_when_not_provided(monkeypatch, tmp_path):
     cmd = captured["cmd"]
     assert "--dry-run" not in cmd
     assert "--project-root" not in cmd
+    assert manager._runs[2].project_root is None

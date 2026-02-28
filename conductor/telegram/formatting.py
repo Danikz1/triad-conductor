@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -84,4 +85,48 @@ def format_final_report(state: Dict[str, Any]) -> str:
         f"<b>Tool calls:</b> {tool_calls}",
         f"<b>Duration:</b> {elapsed_min:.1f} min",
     ]
+    return "\n".join(lines)
+
+
+def format_publish_report(report: Dict[str, Any]) -> str:
+    """Format post-run publishing results (description update + GitHub push)."""
+    project_root = html.escape(str(report.get("project_root") or "n/a"))
+    description_path = html.escape(str(report.get("description_path") or "n/a"))
+    status = html.escape(str(report.get("run_status") or "UNKNOWN"))
+    github_url = html.escape(str(report.get("github_url") or "n/a"))
+
+    lines = [
+        "\U0001f4e6 <b>Project Publish Report</b>",
+        f"<b>Status:</b> <code>{status}</code>",
+        f"<b>Project root:</b> <code>{project_root}</code>",
+        f"<b>Description:</b> <code>{description_path}</code>",
+    ]
+
+    if report.get("description_updated"):
+        lines.append("<b>Description update:</b> ✅ updated")
+    else:
+        lines.append("<b>Description update:</b> ⚠️ skipped")
+
+    if report.get("github_created"):
+        lines.append("<b>GitHub repo:</b> ✅ created")
+    elif report.get("github_checked"):
+        lines.append("<b>GitHub repo:</b> ✅ already exists")
+    else:
+        lines.append("<b>GitHub repo:</b> ⚠️ not created")
+
+    if report.get("github_pushed"):
+        lines.append("<b>Git push:</b> ✅ pushed")
+    else:
+        lines.append("<b>Git push:</b> ⚠️ not pushed")
+
+    if github_url != "n/a":
+        lines.append(f"<b>Remote:</b> {github_url}")
+
+    errors = report.get("errors") or []
+    if errors:
+        lines.append("")
+        lines.append("<b>Notes:</b>")
+        for err in errors[:5]:
+            lines.append(f"- {html.escape(str(err))}")
+
     return "\n".join(lines)
