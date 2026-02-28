@@ -42,6 +42,7 @@ class _DummyTask:
 
 def test_runner_forwards_project_root_and_dry_run(monkeypatch, tmp_path):
     runner_mod = _import_runner_module(monkeypatch)
+    monkeypatch.setenv("TRIAD_TELEGRAM_AUTO_OPEN_MONITOR", "0")
     conductor_root = tmp_path / "triad-conductor"
     conductor_root.mkdir()
     (conductor_root / "conductor.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
@@ -87,6 +88,7 @@ def test_runner_forwards_project_root_and_dry_run(monkeypatch, tmp_path):
 
 def test_runner_omits_optional_flags_when_not_provided(monkeypatch, tmp_path):
     runner_mod = _import_runner_module(monkeypatch)
+    monkeypatch.setenv("TRIAD_TELEGRAM_AUTO_OPEN_MONITOR", "0")
     conductor_root = tmp_path / "triad-conductor"
     conductor_root.mkdir()
     (conductor_root / "conductor.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
@@ -116,3 +118,61 @@ def test_runner_omits_optional_flags_when_not_provided(monkeypatch, tmp_path):
     assert "--dry-run" not in cmd
     assert "--project-root" not in cmd
     assert manager._runs[2].project_root is None
+
+
+def test_local_monitor_command_contains_expected_args(monkeypatch, tmp_path):
+    runner_mod = _import_runner_module(monkeypatch)
+    conductor_root = tmp_path / "triad-conductor"
+    conductor_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(runner_mod, "CONDUCTOR_ROOT", conductor_root)
+    manager = runner_mod.RunnerManager(bot=object())
+
+    cmd = manager.local_monitor_command("tg-abc12345", Path("/tmp/project"))
+    assert "conductor.telegram.live_monitor" in cmd
+    assert "--run-id" in cmd
+    assert "tg-abc12345" in cmd
+    assert "--project-root" in cmd
+    assert "/tmp/project" in cmd
+
+
+def test_start_run_auto_opens_monitor_when_enabled(monkeypatch, tmp_path):
+    runner_mod = _import_runner_module(monkeypatch)
+    monkeypatch.setenv("TRIAD_TELEGRAM_AUTO_OPEN_MONITOR", "1")
+    conductor_root = tmp_path / "triad-conductor"
+    conductor_root.mkdir()
+    (conductor_root / "conductor.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    (conductor_root / "config.yaml").write_text("project:\n  name: test\n", encoding="utf-8")
+    monkeypatch.setattr(runner_mod, "CONDUCTOR_ROOT", conductor_root)
+    monkeypatch.setattr(runner_mod.uuid, "uuid4", lambda: types.SimpleNamespace(hex="facefeed12345678"))
+    monkeypatch.setattr(runner_mod.sys, "platform", "darwin", raising=False)
+    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: "/usr/bin/osascript" if name == "osascript" else None)
+
+    captured = {"osascript_cmd": None}
+
+    def fake_popen(cmd, cwd, stdout, stderr, text):
+        return _DummyProcess()
+
+    def fake_run(cmd, text, capture_output):
+        captured["osascript_cmd"] = cmd
+        return runner_mod.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    def fake_create_task(coro):
+        coro.close()
+        return _DummyTask()
+
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner_mod.asyncio, "create_task", fake_create_task)
+
+    manager = runner_mod.RunnerManager(bot=object())
+    asyncio.run(
+        manager.start_run(
+            chat_id=3,
+            task_text="build",
+            dry_run=False,
+            project_root=Path("/tmp/project"),
+        )
+    )
+
+    assert captured["osascript_cmd"] is not None
+    assert captured["osascript_cmd"][0] == "osascript"

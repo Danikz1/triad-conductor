@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -173,6 +174,57 @@ class RunnerManager:
         self._bot = bot
         self._runs: Dict[int, ActiveRun] = {}  # chat_id -> ActiveRun
 
+    def _auto_open_monitor_enabled(self) -> bool:
+        raw = os.environ.get("TRIAD_TELEGRAM_AUTO_OPEN_MONITOR", "1").strip().lower()
+        return raw not in {"0", "false", "no", "off", ""}
+
+    def _monitor_python_bin(self, conductor_root: Path) -> str:
+        venv_python = conductor_root / ".venv" / "bin" / "python"
+        if venv_python.exists():
+            return str(venv_python)
+        return sys.executable
+
+    def local_monitor_command(self, run_id: str, project_root: Optional[Path] = None) -> str:
+        cmd = [
+            self._monitor_python_bin(CONDUCTOR_ROOT),
+            "-m",
+            "conductor.telegram.live_monitor",
+            "--run-id",
+            run_id,
+            "--conductor-root",
+            str(CONDUCTOR_ROOT),
+        ]
+        if project_root is not None:
+            cmd.extend(["--project-root", str(project_root)])
+        return " ".join(shlex.quote(part) for part in cmd)
+
+    def _auto_open_local_monitor(self, run: ActiveRun) -> None:
+        if not self._auto_open_monitor_enabled():
+            return
+        if sys.platform != "darwin":
+            logger.info("Auto-open monitor is currently supported only on macOS.")
+            return
+        if not shutil.which("osascript"):
+            logger.warning("osascript not found; cannot auto-open local monitor terminal.")
+            return
+
+        monitor_cmd = self.local_monitor_command(run.run_id, run.project_root)
+        shell_cmd = f"cd {shlex.quote(str(run.conductor_root))} && {monitor_cmd}"
+        script_line = json.dumps(shell_cmd)
+        result = subprocess.run(
+            [
+                "osascript",
+                "-e",
+                'tell application "Terminal" to activate',
+                "-e",
+                f"tell application \"Terminal\" to do script {script_line}",
+            ],
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            logger.warning("Failed to auto-open local monitor: %s", result.stderr.strip())
+
     def _heartbeat_interval_seconds(self) -> float:
         raw = os.environ.get("TRIAD_TELEGRAM_HEARTBEAT_SECONDS", "60").strip()
         try:
@@ -260,6 +312,8 @@ class RunnerManager:
             project_root=target_project_root,
         )
         self._runs[chat_id] = active
+
+        self._auto_open_local_monitor(active)
 
         # Start async poll loop
         active.poll_task = asyncio.create_task(self._poll_state(active))

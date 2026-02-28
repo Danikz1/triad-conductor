@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import html
 import logging
 import os
 import re
@@ -288,9 +289,11 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _clear_pending_task(context)
     mode = " (dry-run)" if dry_run else ""
     project_line = f"\nProject root: <code>{project_root}</code>" if project_root else ""
+    monitor_cmd = runner.local_monitor_command(run_id, project_root)
     await update.message.reply_text(
         f"\U0001f680 Run <code>{run_id}</code> started{mode}.\n"
-        f"I'll send phase transition updates as the conductor progresses.{project_line}",
+        f"I'll send phase transition updates as the conductor progresses.{project_line}\n"
+        f"Local live monitor command:\n<code>{html.escape(monitor_cmd)}</code>",
         parse_mode="HTML",
     )
 
