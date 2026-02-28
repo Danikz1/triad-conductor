@@ -21,7 +21,7 @@ from .formatting import format_final_report, format_phase_change, format_status
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_S = 2
-PROJECT_ROOT_DEFAULT = Path(__file__).resolve().parents[2]  # triad-conductor/
+CONDUCTOR_ROOT = Path(__file__).resolve().parents[2]  # triad-conductor/
 
 
 @dataclass
@@ -29,7 +29,7 @@ class ActiveRun:
     run_id: str
     chat_id: int
     process: subprocess.Popen
-    project_root: Path
+    conductor_root: Path
     task_file: Path
     poll_task: Optional[asyncio.Task] = None
     last_phase: str = "INTAKE"
@@ -57,7 +57,7 @@ class RunnerManager:
         run = self._runs.get(chat_id)
         if run is None:
             return None
-        state_path = run.project_root / "runs" / run.run_id / "state.json"
+        state_path = run.conductor_root / "runs" / run.run_id / "state.json"
         if not state_path.exists():
             return None
         try:
@@ -76,32 +76,35 @@ class RunnerManager:
         config_path: Optional[Path] = None,
     ) -> str:
         """Write task to file, spawn conductor, start poll loop. Returns run_id."""
-        root = project_root or PROJECT_ROOT_DEFAULT
+        conductor_root = CONDUCTOR_ROOT
+        target_project_root = project_root
         run_id = f"tg-{uuid.uuid4().hex[:8]}"
 
         # Write task to file
-        task_dir = root / "tasks"
+        task_dir = conductor_root / "tasks"
         task_dir.mkdir(parents=True, exist_ok=True)
         task_file = task_dir / f"{run_id}.md"
         task_file.write_text(task_text, encoding="utf-8")
 
         # Build command — matches conductor.py CLI
-        conductor_script = root / "conductor.py"
+        conductor_script = conductor_root / "conductor.py"
         cmd = [
             sys.executable,
             str(conductor_script),
             "run",
             "--task", str(task_file),
             "--run-id", run_id,
-            "--config", str(config_path or root / "config.yaml"),
+            "--config", str(config_path or conductor_root / "config.yaml"),
         ]
+        if target_project_root:
+            cmd.extend(["--project-root", str(target_project_root)])
         if dry_run:
             cmd.append("--dry-run")
 
         logger.info("Starting conductor: %s", " ".join(cmd))
         proc = subprocess.Popen(
             cmd,
-            cwd=str(root),
+            cwd=str(conductor_root),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -111,7 +114,7 @@ class RunnerManager:
             run_id=run_id,
             chat_id=chat_id,
             process=proc,
-            project_root=root,
+            conductor_root=conductor_root,
             task_file=task_file,
         )
         self._runs[chat_id] = active
@@ -135,7 +138,7 @@ class RunnerManager:
 
     async def _poll_state(self, run: ActiveRun) -> None:
         """Poll state.json every POLL_INTERVAL_S and notify on phase changes."""
-        state_path = run.project_root / "runs" / run.run_id / "state.json"
+        state_path = run.conductor_root / "runs" / run.run_id / "state.json"
 
         try:
             while True:

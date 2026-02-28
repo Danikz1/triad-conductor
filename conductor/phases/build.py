@@ -79,9 +79,15 @@ def run_build(
             # Prepare builder prompt
             diff = get_diff(project_root, branches["integrate"], branches["builder"])
             test_results_text = "(no previous test results)" if state.build_iteration == 1 else context.get("last_test_output", "")
+            change_requests = context.get("change_requests", [])
+            if change_requests:
+                change_requests_text = "\n".join(f"- {item}" for item in change_requests)
+            else:
+                change_requests_text = "(none)"
             if config.redact_before_model:
                 test_results_text = redact(truncate_log(test_results_text))
                 diff = redact(diff)
+                change_requests_text = redact(change_requests_text)
 
             variables = {
                 "TASK": context.get("task_text", ""),
@@ -91,6 +97,7 @@ def run_build(
                     "iteration": state.build_iteration,
                     "phase": "BUILD",
                 }),
+                "CHANGE_REQUESTS": change_requests_text,
                 "TEST_RESULTS": test_results_text,
                 "DIFF": diff,
             }

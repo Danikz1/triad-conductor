@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -13,6 +14,27 @@ from conductor.cost_tracker import estimate_cost
 from conductor.models.parsers import extract_json
 
 log = logging.getLogger(__name__)
+
+
+def _env_flag_enabled(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _permission_mode() -> tuple[bool, bool]:
+    automate = _env_flag_enabled("TRIAD_AUTOMATE_PERMISSIONS", True)
+    dangerous = _env_flag_enabled("TRIAD_DANGEROUS_AUTONOMY", False)
+    if dangerous and not automate:
+        log.warning("TRIAD_DANGEROUS_AUTONOMY=1 ignored because TRIAD_AUTOMATE_PERMISSIONS is disabled")
+        dangerous = False
+    return automate, dangerous
+
+
+def _stderr_unknown_option(stderr: str) -> bool:
+    s = stderr.lower()
+    return "unknown option" in s or "unrecognized option" in s or "unknown flag" in s
 
 
 def invoke_model(
@@ -69,9 +91,11 @@ def _invoke_claude(
     cmd = [
         "claude", "-p",
         "--output-format", "json",
-        "--dangerously-skip-permissions",
         "--no-session-persistence",
     ]
+    automate, _ = _permission_mode()
+    if automate:
+        cmd.append("--dangerously-skip-permissions")
     if schema_path:
         cmd += ["--json-schema", str(schema_path)]
     if mcp_config_path:
@@ -88,13 +112,28 @@ def _invoke_claude(
 
 def _invoke_codex(prompt: str, cwd: Optional[Path] = None) -> dict[str, Any]:
     """Invoke Codex CLI: codex exec - -C <dir> --full-auto"""
-    cmd = ["codex", "exec", "-", "--full-auto"]
+    automate, dangerous = _permission_mode()
+    cmd = ["codex", "exec", "-"]
+    if automate:
+        cmd += ["-a", "never", "--sandbox", "danger-full-access" if dangerous else "workspace-write"]
     if cwd:
         cmd += ["-C", str(cwd)]
 
     result = subprocess.run(
         cmd, input=prompt, text=True, capture_output=True, timeout=600,
     )
+    if (
+        result.returncode != 0
+        and automate
+        and _stderr_unknown_option(result.stderr)
+    ):
+        fallback_cmd = ["codex", "exec", "-", "--full-auto"]
+        if cwd:
+            fallback_cmd += ["-C", str(cwd)]
+        log.warning("Codex CLI rejected approval/sandbox flags; retrying with --full-auto")
+        result = subprocess.run(
+            fallback_cmd, input=prompt, text=True, capture_output=True, timeout=600,
+        )
     if result.returncode != 0:
         raise RuntimeError(f"Codex CLI failed (exit {result.returncode}): {result.stderr[:500]}")
 
@@ -113,11 +152,25 @@ def _invoke_gemini(prompt: str, schema_path: Optional[Path] = None) -> dict[str,
     with open(prompt_file) as f:
         prompt_text = f.read()
 
-    cmd_args = ["gemini", "-p", "-", "--output-format", "json", "--yolo"]
+    cmd_args = ["gemini", "-p", "-", "--output-format", "json"]
+    automate, _ = _permission_mode()
+    if automate:
+        cmd_args += ["--yolo", "--approval-mode", "yolo"]
 
     result = subprocess.run(
         cmd_args, input=prompt_text, text=True, capture_output=True, timeout=600,
     )
+    if (
+        result.returncode != 0
+        and automate
+        and "--approval-mode" in cmd_args
+        and _stderr_unknown_option(result.stderr)
+    ):
+        fallback_cmd = ["gemini", "-p", "-", "--output-format", "json", "--yolo"]
+        log.warning("Gemini CLI rejected --approval-mode; retrying with --yolo only")
+        result = subprocess.run(
+            fallback_cmd, input=prompt_text, text=True, capture_output=True, timeout=600,
+        )
 
     Path(prompt_file).unlink(missing_ok=True)
 

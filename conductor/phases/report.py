@@ -35,17 +35,17 @@ def run_report(
     """
     log.info("=== PHASE 6: REPORT ===")
 
-    is_blocked = state.breaker_reason is not None
-    schema_name = "blocked_report" if is_blocked else "final_report"
-    schema_path = _BLOCKED_SCHEMA if is_blocked else _FINAL_SCHEMA
-
-    # Determine status
-    if is_blocked:
+    # Determine status first so PARTIAL and BLOCKED can diverge cleanly.
+    if state.final_status in {"SUCCESS", "PARTIAL", "BLOCKED"}:
+        status = state.final_status
+    elif state.breaker_reason:
         status = "BLOCKED"
-    elif state.phase == "REPORT" and state.breaker_reason:
-        status = "PARTIAL"
     else:
         status = "SUCCESS"
+
+    is_blocked = status == "BLOCKED"
+    schema_name = "blocked_report" if is_blocked else "final_report"
+    schema_path = _BLOCKED_SCHEMA if is_blocked else _FINAL_SCHEMA
 
     test_results = context.get("last_test_output", "(no test output)")
     if config.redact_before_model:

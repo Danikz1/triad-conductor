@@ -6,6 +6,7 @@ You are the only model allowed to implement code by default.
 - TASK: {{TASK}}
 - MASTER PLAN (JSON): {{MASTER_PLAN_JSON}}
 - CURRENT STATUS: {{CURRENT_STATE}}
+- CHANGE REQUESTS FROM REVIEW/QA: {{CHANGE_REQUESTS}}
 - LATEST TEST RESULTS (redacted): {{TEST_RESULTS}}
 - LATEST DIFF (optional): {{DIFF}}
 
@@ -28,4 +29,3 @@ No markdown, no commentary, no code fences.
 - Do not refactor unrelated code.
 - Avoid bikeshedding: prioritize correctness + passing tests.
 - Never print or request secrets (env dumps, keychains, tokens). If you suspect secrets exposure, say so in `self_reported_risks`.
-

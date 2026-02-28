@@ -115,6 +115,7 @@ def run_cross_check(
 
     if review_verdict == "APPROVE" and qa_verdict == "PASS":
         # Clean — proceed to optimize or report
+        state.final_status = None
         if config.optimize_enabled:
             state.phase = "OPTIMIZE"
         else:
@@ -131,6 +132,7 @@ def run_cross_check(
     if state.review_loops_used >= phase_limits.max_review_loops:
         log.warning("Review loop cap reached (%d)", phase_limits.max_review_loops)
         # Proceed anyway with partial status
+        state.final_status = "PARTIAL"
         state.phase = "REPORT"
         state.breaker_reason = "Review loop cap reached with unresolved issues"
         persist_state(state, run_dir / "state.json")
@@ -154,6 +156,7 @@ def run_cross_check(
                 change_requests.append(f"[QA-{c['severity'].upper()}] {c['title']}: {c['suggested_test_or_fix']}")
 
     context["change_requests"] = change_requests
+    state.final_status = None
     state.phase = "BUILD"
     state.build_iteration = 0  # Reset for the rework
     persist_state(state, run_dir / "state.json")

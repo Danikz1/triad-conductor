@@ -45,6 +45,7 @@ class RunState:
     loc_changed: list[int] = field(default_factory=list)
     stuck_replans_used: int = 0
     tournament_used: bool = False
+    final_status: Optional[str] = None  # SUCCESS | PARTIAL | BLOCKED
     breaker_reason: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:

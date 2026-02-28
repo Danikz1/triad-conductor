@@ -21,6 +21,39 @@ log = logging.getLogger(__name__)
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "proposal.schema.json"
 
 
+def _normalize_contradiction_quote(quote: str) -> str:
+    """Normalize contradiction quotes for consensus matching."""
+    return " ".join(quote.split()).casefold()
+
+
+def _find_contradiction_consensus(
+    records: list[tuple[str, dict]],
+    required_count: int = 2,
+) -> Optional[dict]:
+    """Check if ``required_count`` proposers flag the same spec contradiction.
+
+    *records* is a list of ``(model_name, proposal_dict)`` tuples.
+    Returns a dict with the shared quote and contributing models, or ``None``.
+    """
+    quote_models: dict[str, set[str]] = {}
+    display_quotes: dict[str, str] = {}
+    for model_name, proposal in records:
+        for c in proposal.get("spec_contradictions") or []:
+            raw_quote = c.get("quote", "")
+            if not raw_quote:
+                continue
+            normalized = _normalize_contradiction_quote(raw_quote)
+            if not normalized:
+                continue
+            quote_models.setdefault(normalized, set()).add(model_name)
+            display_quotes.setdefault(normalized, " ".join(raw_quote.split()))
+
+    for normalized, models in quote_models.items():
+        if len(models) >= required_count:
+            return {"quote": display_quotes[normalized], "models": sorted(models)}
+    return None
+
+
 def run_propose(
     state: RunState,
     config: Config,
@@ -49,6 +82,7 @@ def run_propose(
         prompt = redact(prompt)
 
     proposals: list[dict[str, Any]] = []
+    proposal_records: list[tuple[str, dict[str, Any]]] = []
     errors: list[str] = []
 
     def _call_proposer(i: int, model_ref):
@@ -99,6 +133,7 @@ def run_propose(
                     continue
 
             proposals.append(result)
+            proposal_records.append((name, result))
             log.info("Proposer %s succeeded", name)
 
     # Save proposals
@@ -113,15 +148,19 @@ def run_propose(
         persist_state(state, run_dir / "state.json")
         return {"proposals": [], "blocked": True, "reason": state.breaker_reason}
 
-    # Contradiction check: if 2/3 proposals flag contradictions → PAUSE_BLOCKED
-    contradiction_count = sum(
-        1 for p in proposals
-        if p.get("spec_contradictions") and len(p["spec_contradictions"]) > 0
-    )
-    if contradiction_count >= 2:
-        log.warning("2+ proposers detected spec contradictions → PAUSE_BLOCKED")
+    # Contradiction check: block only when 2+ proposers flag the same contradiction quote.
+    consensus = _find_contradiction_consensus(proposal_records, required_count=2)
+    if consensus is not None:
+        log.warning(
+            "Spec contradiction consensus detected by %s on quote: %s",
+            ",".join(consensus["models"]),
+            consensus["quote"],
+        )
         state.phase = "REPORT"
-        state.breaker_reason = "Spec contradictions detected by majority of proposers"
+        state.breaker_reason = (
+            "Spec contradiction consensus detected "
+            f"({','.join(consensus['models'])}) on quote: {consensus['quote']}"
+        )
         persist_state(state, run_dir / "state.json")
         return {"proposals": proposals, "blocked": True, "reason": state.breaker_reason}
 

@@ -1,8 +1,14 @@
 """Tests for conductor.models.invoker module (mocked subprocess)."""
 
+import subprocess
 from unittest.mock import patch, MagicMock
 
-from conductor.models.invoker import invoke_model, invoke_model_safe
+from conductor.models.invoker import (
+    _invoke_claude,
+    _invoke_codex,
+    invoke_model,
+    invoke_model_safe,
+)
 
 
 def test_invoke_model_dry_run():
@@ -38,3 +44,70 @@ def test_invoke_model_unknown():
         assert False, "Should have raised"
     except ValueError as e:
         assert "Unknown model" in str(e)
+
+
+def test_invoke_claude_respects_automation_toggle(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_claude("prompt")
+        cmd = mock_run.call_args.args[0]
+        assert "--dangerously-skip-permissions" not in cmd
+
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_claude("prompt")
+        cmd = mock_run.call_args.args[0]
+        assert "--dangerously-skip-permissions" in cmd
+
+
+def test_invoke_codex_uses_workspace_write_by_default(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["codex"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_codex("prompt")
+        cmd = mock_run.call_args.args[0]
+        assert "-a" in cmd
+        assert "never" in cmd
+        assert "--sandbox" in cmd
+        assert "workspace-write" in cmd
+
+
+def test_invoke_codex_uses_danger_sandbox_when_enabled(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "1")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["codex"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_codex("prompt")
+        cmd = mock_run.call_args.args[0]
+        assert "--sandbox" in cmd
+        assert "danger-full-access" in cmd
+
+
+def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=2, stdout="", stderr="unknown option: -a"
+            ),
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=0, stdout="{}", stderr=""
+            ),
+        ]
+        _invoke_codex("prompt")
+        first_cmd = mock_run.call_args_list[0].args[0]
+        second_cmd = mock_run.call_args_list[1].args[0]
+        assert "-a" in first_cmd
+        assert "--full-auto" in second_cmd
