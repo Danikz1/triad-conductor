@@ -34,6 +34,8 @@ def test_run_auth_preflight_detects_logged_out_claude(monkeypatch):
     def fake_run(cmd, text, capture_output, timeout):
         if cmd[:3] == ["claude", "auth", "status"]:
             return _cp(cmd, out='{"loggedIn": false, "authMethod": "none"}')
+        if cmd[:2] == ["claude", "-p"]:
+            return _cp(cmd, code=1, err="Not logged in · Please run /login")
         if cmd[:3] == ["codex", "login", "status"]:
             return _cp(cmd, out="Logged in using ChatGPT")
         if cmd[0] == "gemini":
@@ -49,10 +51,31 @@ def test_run_auth_preflight_detects_logged_out_claude(monkeypatch):
     assert by_provider["gemini"].ok is True
 
 
+def test_claude_status_false_but_headless_probe_succeeds(monkeypatch):
+    def fake_run(cmd, text, capture_output, timeout):
+        if cmd[:3] == ["claude", "auth", "status"]:
+            return _cp(cmd, out='{"loggedIn": false, "authMethod": "none"}')
+        if cmd[:2] == ["claude", "-p"]:
+            return _cp(cmd, out="OK")
+        if cmd[:3] == ["codex", "login", "status"]:
+            return _cp(cmd, out="Logged in using ChatGPT")
+        if cmd[0] == "gemini":
+            return _cp(cmd, out='{"text":"OK"}')
+        raise AssertionError(f"Unexpected command: {cmd}")
+
+    monkeypatch.setattr(preflight.subprocess, "run", fake_run)
+
+    checks = preflight.run_auth_preflight(Config(), timeout_seconds=5)
+    by_provider = {c.provider: c for c in checks}
+    assert by_provider["claude"].ok is True
+
+
 def test_ensure_required_auth_raises_with_login_hints(monkeypatch):
     def fake_run(cmd, text, capture_output, timeout):
         if cmd[:3] == ["claude", "auth", "status"]:
             return _cp(cmd, out='{"loggedIn": false}')
+        if cmd[:2] == ["claude", "-p"]:
+            return _cp(cmd, code=1, err="Not logged in · Please run /login")
         if cmd[:3] == ["codex", "login", "status"]:
             return _cp(cmd, out="Not logged in")
         if cmd[0] == "gemini":

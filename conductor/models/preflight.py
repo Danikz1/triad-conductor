@@ -52,7 +52,39 @@ def _conflicting_gemini_flags(text: str) -> bool:
     return "cannot use both" in s and "--yolo" in s and "--approval-mode" in s
 
 
-def _check_claude(timeout_seconds: int) -> AuthCheck:
+def _check_claude_headless(timeout_seconds: int, model_id: str | None) -> AuthCheck:
+    cmd = [
+        "claude",
+        "-p",
+        "Reply exactly: OK",
+        "--output-format",
+        "text",
+        "--no-session-persistence",
+    ]
+    if model_id:
+        cmd += ["--model", model_id]
+
+    try:
+        result = _run(cmd, timeout_seconds)
+    except FileNotFoundError:
+        return AuthCheck("claude", False, "CLI not found (install `claude` first).")
+    except subprocess.TimeoutExpired:
+        return AuthCheck("claude", False, "Timed out during Claude headless auth probe.")
+
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    lowered = combined.lower()
+    if result.returncode == 0:
+        return AuthCheck("claude", True, "Authenticated (headless probe succeeded).")
+    if "not logged in" in lowered or "please run /login" in lowered:
+        return AuthCheck("claude", False, "Not authenticated for headless mode (run `claude` then `/login`).")
+    return AuthCheck(
+        "claude",
+        False,
+        f"Claude headless auth probe failed (exit {result.returncode}): {combined[:240]}",
+    )
+
+
+def _check_claude(timeout_seconds: int, model_id: str | None) -> AuthCheck:
     try:
         result = _run(["claude", "auth", "status"], timeout_seconds)
     except FileNotFoundError:
@@ -71,9 +103,17 @@ def _check_claude(timeout_seconds: int) -> AuthCheck:
             if payload.get("loggedIn") is True:
                 return AuthCheck("claude", True, "Authenticated.")
             method = payload.get("authMethod", "unknown")
+            # Some environments can report false negatives in auth status.
+            # Fall back to a lightweight headless probe, which matches Triad runtime.
+            probe = _check_claude_headless(timeout_seconds, model_id=model_id)
+            if probe.ok:
+                return probe
             return AuthCheck("claude", False, f"Not authenticated (authMethod={method}).")
 
     if result.returncode != 0:
+        probe = _check_claude_headless(timeout_seconds, model_id=model_id)
+        if probe.ok:
+            return probe
         return AuthCheck(
             "claude",
             False,
@@ -83,6 +123,9 @@ def _check_claude(timeout_seconds: int) -> AuthCheck:
     lowered = combined.lower()
     if "logged in" in lowered and "not logged" not in lowered:
         return AuthCheck("claude", True, "Authenticated.")
+    probe = _check_claude_headless(timeout_seconds, model_id=model_id)
+    if probe.ok:
+        return probe
     return AuthCheck("claude", False, f"Unable to verify authentication: {combined[:240]}")
 
 
@@ -156,7 +199,7 @@ def run_auth_preflight(config: Config, timeout_seconds: int = 30) -> list[AuthCh
     checks: list[AuthCheck] = []
     for provider in required_providers(config):
         if provider == "claude":
-            checks.append(_check_claude(timeout_seconds))
+            checks.append(_check_claude(timeout_seconds, model_id=_first_model_id(config, "claude")))
             continue
         if provider == "codex":
             checks.append(_check_codex(timeout_seconds))
