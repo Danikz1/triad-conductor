@@ -75,6 +75,41 @@ def _clear_pending_project_root(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data.pop("pending_project_root", None)
 
 
+def _help_message() -> str:
+    return (
+        "<b>Triad Conductor Bot</b>\n\n"
+        "<b>Step 1: Send your project description</b>\n"
+        "Send plain text or upload a <code>.md</code> file.\n\n"
+        "<b>Step 2: Choose path</b>\n"
+        "/consilium (alias: /refine) — evaluate/refine the description first\n"
+        "/run (alias: /develop) — start development immediately\n\n"
+        "<b>Development controls</b>\n"
+        "/run [--dry-run] [--project-root /path]\n"
+        "/status\n"
+        "/stop\n\n"
+        "<b>Consilium review controls</b>\n"
+        "/approve\n"
+        "/reject\n"
+        "/history\n\n"
+        "/help — show this message"
+    )
+
+
+def _next_step_prompt(preview: str, source_name: Optional[str] = None) -> str:
+    header = (
+        f"\U0001f4ce Task stored from <code>{source_name}</code>."
+        if source_name
+        else "\U0001f4dd Task stored."
+    )
+    return (
+        f"{header}\nPreview:\n<pre>{preview}</pre>\n\n"
+        "Choose next step:\n"
+        "1) <b>Consilium evaluate/refine</b>: /consilium (or /refine)\n"
+        "2) <b>Develop now</b>: /run (or /develop)\n\n"
+        "Send a new message/file anytime to replace the pending task."
+    )
+
+
 def _sanitize_project_dir_name(name: str) -> str:
     cleaned = re.sub(r"[/\\\\]+", "-", (name or "").strip())
     cleaned = re.sub(r"\s+", "-", cleaned)
@@ -188,22 +223,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_authorized(update):
         await update.message.reply_text("Access denied.")
         return
-    await update.message.reply_text(
-        "<b>Triad Conductor Bot</b>\n\n"
-        "Send me a task description (text or <code>.md</code> file), then use /run to launch.\n\n"
-        "<b>Development:</b>\n"
-        "/run [--dry-run] [--project-root /path] — start a conductor run\n"
-        "/status — show current run state\n"
-        "/stop — cancel the active run\n\n"
-        "<b>Triad Architect (idea refinement):</b>\n"
-        "/refine — start refining the pending task idea\n"
-        "/approve — approve the current refined spec\n"
-        "/reject — reject and stop refinement\n"
-        "/history — show refinement feedback history\n"
-        "(or just reply with feedback / D1: answer / A1: correction)\n\n"
-        "/help — show this message",
-        parse_mode="HTML",
-    )
+    await update.message.reply_text(_help_message(), parse_mode="HTML")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -227,7 +247,7 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     task_text = _get_pending_task(context)
     if not task_text:
         await update.message.reply_text(
-            "No task set. Send me a text message or upload a <code>.md</code> file first.",
+            "No task set. Send text or upload a <code>.md</code> file first.",
             parse_mode="HTML",
         )
         return
@@ -346,7 +366,7 @@ async def refine_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     task_text = _get_pending_task(context)
     if not task_text:
         await update.message.reply_text(
-            "No idea set. Send me a text message first, then /refine.",
+            "No idea set. Send text or upload a .md file first, then /consilium (or /refine).",
         )
         return
 
@@ -609,11 +629,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     _set_pending_task(context, text)
     _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
-    await update.message.reply_text(
-        f"\U0001f4dd Task stored. Preview:\n<pre>{preview}</pre>\n\n"
-        f"Send /run to launch, /refine to refine with Triad Architect, or send another message to replace.",
-        parse_mode="HTML",
-    )
+    await update.message.reply_text(_next_step_prompt(preview), parse_mode="HTML")
 
 
 async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -642,8 +658,4 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     _set_pending_task(context, text)
     _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
-    await update.message.reply_text(
-        f"\U0001f4ce Task stored from <code>{name}</code>. Preview:\n<pre>{preview}</pre>\n\n"
-        f"Send /run to launch, /refine to refine with Triad Architect, or upload another file to replace.",
-        parse_mode="HTML",
-    )
+    await update.message.reply_text(_next_step_prompt(preview, source_name=name), parse_mode="HTML")

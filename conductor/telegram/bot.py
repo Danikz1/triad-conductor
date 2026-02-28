@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
+from telegram import BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -30,6 +31,24 @@ from .runner import RunnerManager
 logger = logging.getLogger(__name__)
 
 
+async def _post_init_set_commands(app) -> None:
+    """Populate Telegram command menu with the full bot command set."""
+    commands = [
+        BotCommand("start", "Show getting-started guide"),
+        BotCommand("help", "Show all commands"),
+        BotCommand("consilium", "Evaluate/refine pending project description"),
+        BotCommand("refine", "Alias of /consilium"),
+        BotCommand("run", "Start development run"),
+        BotCommand("develop", "Alias of /run"),
+        BotCommand("status", "Show active run status"),
+        BotCommand("stop", "Stop active run"),
+        BotCommand("approve", "Approve refined spec"),
+        BotCommand("reject", "Reject refined spec"),
+        BotCommand("history", "Show refinement feedback history"),
+    ]
+    await app.bot.set_my_commands(commands)
+
+
 def create_application():
     """Build a telegram.ext.Application with all handlers registered."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -39,7 +58,7 @@ def create_application():
             "Add it to your .env file or export it as an environment variable."
         )
 
-    app = ApplicationBuilder().token(token).build()
+    app = ApplicationBuilder().token(token).post_init(_post_init_set_commands).build()
 
     # Inject RunnerManager into bot_data so handlers can access it
     app.bot_data["runner"] = RunnerManager(bot=app.bot)
@@ -47,11 +66,13 @@ def create_application():
     # Command handlers — development
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("develop", run_cmd))
     app.add_handler(CommandHandler("run", run_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("stop", stop_cmd))
 
     # Command handlers — Triad Architect (idea refinement)
+    app.add_handler(CommandHandler("consilium", refine_cmd))
     app.add_handler(CommandHandler("refine", refine_cmd))
     app.add_handler(CommandHandler("approve", approve_cmd))
     app.add_handler(CommandHandler("reject", reject_cmd))
