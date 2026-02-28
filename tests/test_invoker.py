@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 from conductor.models.invoker import (
     _invoke_claude,
     _invoke_codex,
+    _invoke_gemini,
     invoke_model,
     invoke_model_safe,
 )
@@ -111,3 +112,71 @@ def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
         second_cmd = mock_run.call_args_list[1].args[0]
         assert "-a" in first_cmd
         assert "--full-auto" in second_cmd
+
+
+def test_invoke_codex_falls_back_to_full_auto_on_unexpected_argument(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=2, stdout="", stderr="error: unexpected argument '-a' found"
+            ),
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=0, stdout="{}", stderr=""
+            ),
+        ]
+        _invoke_codex("prompt")
+        first_cmd = mock_run.call_args_list[0].args[0]
+        second_cmd = mock_run.call_args_list[1].args[0]
+        assert "-a" in first_cmd
+        assert "--full-auto" in second_cmd
+
+
+def test_invoke_gemini_falls_back_to_approval_mode_equals(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(
+                args=["gemini"],
+                returncode=1,
+                stdout="",
+                stderr="Cannot use both --yolo (-y) and --approval-mode together. Use --approval-mode=yolo instead.",
+            ),
+            subprocess.CompletedProcess(
+                args=["gemini"], returncode=0, stdout="{}", stderr=""
+            ),
+        ]
+        _invoke_gemini("prompt")
+        first_cmd = mock_run.call_args_list[0].args[0]
+        second_cmd = mock_run.call_args_list[1].args[0]
+        assert "--yolo" in first_cmd
+        assert "--approval-mode" in first_cmd
+        assert "--approval-mode=yolo" in second_cmd
+        assert "--yolo" not in second_cmd
+
+
+def test_invoke_gemini_falls_back_to_yolo_when_approval_unknown(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(
+                args=["gemini"],
+                returncode=1,
+                stdout="",
+                stderr="unknown option: --approval-mode",
+            ),
+            subprocess.CompletedProcess(
+                args=["gemini"],
+                returncode=1,
+                stdout="",
+                stderr="unknown option: --approval-mode=yolo",
+            ),
+            subprocess.CompletedProcess(
+                args=["gemini"], returncode=0, stdout="{}", stderr=""
+            ),
+        ]
+        _invoke_gemini("prompt")
+        third_cmd = mock_run.call_args_list[2].args[0]
+        assert "--yolo" in third_cmd
+        assert "--approval-mode" not in " ".join(third_cmd)

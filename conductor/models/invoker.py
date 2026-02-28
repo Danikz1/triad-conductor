@@ -34,7 +34,21 @@ def _permission_mode() -> tuple[bool, bool]:
 
 def _stderr_unknown_option(stderr: str) -> bool:
     s = stderr.lower()
-    return "unknown option" in s or "unrecognized option" in s or "unknown flag" in s
+    return (
+        "unknown option" in s
+        or "unrecognized option" in s
+        or "unknown flag" in s
+        or "unexpected argument" in s
+        or "wasn't expected" in s
+    )
+
+
+def _stderr_conflicting_flags(stderr: str) -> bool:
+    s = stderr.lower()
+    return (
+        "cannot use both" in s
+        or ("--yolo" in s and "--approval-mode" in s and "together" in s)
+    )
 
 
 def invoke_model(
@@ -152,28 +166,42 @@ def _invoke_gemini(prompt: str, schema_path: Optional[Path] = None) -> dict[str,
     with open(prompt_file) as f:
         prompt_text = f.read()
 
-    cmd_args = ["gemini", "-p", "-", "--output-format", "json"]
+    cmd_base = ["gemini", "-p", "-", "--output-format", "json"]
     automate, _ = _permission_mode()
+    attempts: list[list[str]]
     if automate:
-        cmd_args += ["--yolo", "--approval-mode", "yolo"]
+        # Try both flags first; newer CLIs may accept this combination.
+        attempts = [
+            cmd_base + ["--yolo", "--approval-mode", "yolo"],
+            cmd_base + ["--approval-mode=yolo"],
+            cmd_base + ["--yolo"],
+        ]
+    else:
+        attempts = [cmd_base]
 
-    result = subprocess.run(
-        cmd_args, input=prompt_text, text=True, capture_output=True, timeout=600,
-    )
-    if (
-        result.returncode != 0
-        and automate
-        and "--approval-mode" in cmd_args
-        and _stderr_unknown_option(result.stderr)
-    ):
-        fallback_cmd = ["gemini", "-p", "-", "--output-format", "json", "--yolo"]
-        log.warning("Gemini CLI rejected --approval-mode; retrying with --yolo only")
+    result: Optional[subprocess.CompletedProcess] = None
+    for idx, cmd_args in enumerate(attempts):
         result = subprocess.run(
-            fallback_cmd, input=prompt_text, text=True, capture_output=True, timeout=600,
+            cmd_args, input=prompt_text, text=True, capture_output=True, timeout=600,
         )
+        if result.returncode == 0:
+            break
+        if idx >= len(attempts) - 1:
+            break
+
+        stderr = result.stderr or ""
+        if _stderr_conflicting_flags(stderr):
+            log.warning("Gemini CLI rejected combined yolo/approval flags; retrying compatibility mode")
+            continue
+        if _stderr_unknown_option(stderr):
+            log.warning("Gemini CLI rejected flags on attempt %d; trying fallback", idx + 1)
+            continue
+        break
 
     Path(prompt_file).unlink(missing_ok=True)
 
+    if result is None:
+        raise RuntimeError("Gemini CLI did not execute")
     if result.returncode != 0:
         raise RuntimeError(f"Gemini CLI failed (exit {result.returncode}): {result.stderr[:500]}")
 
