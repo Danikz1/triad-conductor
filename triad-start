@@ -8,6 +8,95 @@ PYTHON_BIN="$CONDUCTOR_ROOT/.venv/bin/python"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="${PYTHON:-python3}"
 fi
+SKIP_PREFLIGHT=0
+PREFLIGHT_ONLY=0
+
+_first_line() {
+  sed -n '1p'
+}
+
+_version_line() {
+  local cmd="$1"
+  local out=""
+  out="$("$cmd" --version 2>/dev/null | _first_line || true)"
+  if [[ -z "$out" ]]; then
+    out="$("$cmd" -v 2>/dev/null | _first_line || true)"
+  fi
+  if [[ -z "$out" ]]; then
+    out="version unknown"
+  fi
+  printf '%s' "$out"
+}
+
+_run_preflight() {
+  local missing=0
+  echo "Preflight checks:"
+
+  if command -v git >/dev/null 2>&1; then
+    echo "  [OK] git: $(_version_line git)"
+  else
+    echo "  [MISSING] git"
+    missing=1
+  fi
+
+  if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "  [OK] python: $("$PYTHON_BIN" --version 2>&1 | _first_line)"
+  else
+    echo "  [MISSING] python runtime: $PYTHON_BIN"
+    missing=1
+  fi
+
+  if command -v claude >/dev/null 2>&1; then
+    local claude_help=""
+    claude_help="$(claude --help 2>&1 || true)"
+    if echo "$claude_help" | grep -q -- "--dangerously-skip-permissions"; then
+      echo "  [OK] claude: $(_version_line claude)"
+    else
+      echo "  [WARN] claude: found ($(_version_line claude)), automation flag may be unsupported"
+    fi
+  else
+    echo "  [MISSING] claude CLI"
+    missing=1
+  fi
+
+  if command -v codex >/dev/null 2>&1; then
+    local codex_help=""
+    codex_help="$(codex exec --help 2>&1 || true)"
+    if echo "$codex_help" | grep -q -- "--full-auto"; then
+      echo "  [OK] codex: $(_version_line codex) (has --full-auto fallback)"
+    elif echo "$codex_help" | grep -q -- "--sandbox"; then
+      echo "  [OK] codex: $(_version_line codex) (has --sandbox mode)"
+    else
+      echo "  [WARN] codex: found ($(_version_line codex)), no known automation flags in help"
+    fi
+  else
+    echo "  [MISSING] codex CLI"
+    missing=1
+  fi
+
+  if command -v gemini >/dev/null 2>&1; then
+    local gemini_help=""
+    gemini_help="$(gemini --help 2>&1 || true)"
+    if echo "$gemini_help" | grep -q -- "--approval-mode"; then
+      echo "  [OK] gemini: $(_version_line gemini) (supports --approval-mode)"
+    elif echo "$gemini_help" | grep -q -- "--yolo"; then
+      echo "  [OK] gemini: $(_version_line gemini) (supports --yolo)"
+    else
+      echo "  [WARN] gemini: found ($(_version_line gemini)), no known automation flags in help"
+    fi
+  else
+    echo "  [MISSING] gemini CLI"
+    missing=1
+  fi
+
+  if [[ "$missing" -ne 0 ]]; then
+    echo "Preflight failed: install missing CLI tools above before running triad-start."
+    return 3
+  fi
+
+  echo "Preflight passed."
+  return 0
+}
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "Usage: triad-start [project_description.md] [--project-name NAME] [--dry-run]"
@@ -17,6 +106,8 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "  --project-name NAME     Explicit project folder name"
   echo "  --projects-home PATH    Override projects root (default: $DEFAULT_PROJECTS_HOME)"
   echo "  --use-current-dir       Use current directory as project root (legacy behavior)"
+  echo "  --skip-preflight        Skip environment preflight checks"
+  echo "  --preflight-only        Run preflight checks and exit"
   echo "Env:"
   echo "  TRIAD_PROJECTS_HOME     Default projects root (same as --projects-home)"
   exit 0
@@ -45,6 +136,10 @@ while [[ $i -le $# ]]; do
     PROJECTS_HOME="${!i}"
   elif [[ "$arg" == "--use-current-dir" ]]; then
     USE_CURRENT_DIR=1
+  elif [[ "$arg" == "--skip-preflight" ]]; then
+    SKIP_PREFLIGHT=1
+  elif [[ "$arg" == "--preflight-only" ]]; then
+    PREFLIGHT_ONLY=1
   elif [[ "$arg" == --* ]]; then
     EXTRA_ARGS+=("$arg")
     if [[ "$arg" == "--run-id" || "$arg" == "--config" || "$arg" == "--project-root" ]]; then
@@ -62,6 +157,17 @@ while [[ $i -le $# ]]; do
   fi
   ((i++))
 done
+
+if [[ "$SKIP_PREFLIGHT" -eq 0 ]]; then
+  _run_preflight || exit $?
+elif [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
+  echo "--preflight-only cannot be combined with --skip-preflight"
+  exit 2
+fi
+
+if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
+  exit 0
+fi
 
 if [[ -z "$TASK_PATH" ]]; then
   if [[ -f "project.md" ]]; then
@@ -154,4 +260,4 @@ exec "$PYTHON_BIN" "$CONDUCTOR_ROOT/conductor.py" run \
   --config "$CONFIG_PATH" \
   --project-root "$PROJECT_ROOT" \
   --run-id "$RUN_ID" \
-  "${EXTRA_ARGS[@]}"
+  ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
