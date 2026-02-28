@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 from typing import Any, Optional
 
 from conductor.config import Config
@@ -22,6 +23,41 @@ from conductor.tools import run_tests
 log = logging.getLogger(__name__)
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "optimization.schema.json"
+
+
+def _list_untracked_files(cwd: Path) -> set[Path]:
+    result = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return set()
+    return {cwd / line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _revert_failed_patch(cwd: Path, before_untracked: set[Path]) -> None:
+    subprocess.run(
+        ["git", "checkout", "."],
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+    )
+    after_untracked = _list_untracked_files(cwd)
+    created_untracked = sorted(
+        after_untracked - before_untracked,
+        key=lambda p: len(p.parts),
+        reverse=True,
+    )
+    for path in created_untracked:
+        try:
+            if path.is_file() or path.is_symlink():
+                path.unlink(missing_ok=True)
+            elif path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError as exc:
+            log.debug("Failed to clean untracked path %s: %s", path, exc)
 
 
 def run_optimize(
@@ -68,6 +104,12 @@ def run_optimize(
 
     # Parallel optimizer invocations
     all_suggestions: list[dict] = []
+    state_lock = Lock()
+
+    def _record_usage(cost: float) -> None:
+        with state_lock:
+            state.tool_calls_used += 1
+            state.approx_cost_usd += cost
 
     def _call_optimizer(i: int, model_ref):
         dr_resp = dry_run_responses[i] if dry_run_responses and i < len(dry_run_responses) else None
@@ -78,8 +120,7 @@ def run_optimize(
             dry_run=dry_run,
             dry_run_response=dr_resp,
         )
-        state.tool_calls_used += 1
-        state.approx_cost_usd += cost
+        _record_usage(cost)
         return i, model_ref.name, result, err
 
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -115,6 +156,7 @@ def run_optimize(
             continue
 
         log.info("Trying optimization: %s", suggestion.get("title", "unknown"))
+        before_untracked = _list_untracked_files(builder_wt)
 
         # Try applying the patch in the builder worktree
         try:
@@ -127,13 +169,18 @@ def run_optimize(
                 log.info("Patch doesn't apply cleanly, skipping: %s", suggestion.get("title"))
                 continue
 
-            subprocess.run(
+            apply_result = subprocess.run(
                 ["git", "apply", "-"],
                 input=patch, text=True, capture_output=True,
                 cwd=str(builder_wt),
             )
+            if apply_result.returncode != 0:
+                log.info("Patch failed to apply, skipping: %s", suggestion.get("title"))
+                _revert_failed_patch(builder_wt, before_untracked)
+                continue
         except Exception as e:
             log.warning("Failed to apply patch: %s", e)
+            _revert_failed_patch(builder_wt, before_untracked)
             continue
 
         # Test
@@ -147,16 +194,25 @@ def run_optimize(
                 break
 
         if all_passed:
-            commit_all(builder_wt, f"Optimization: {suggestion.get('title', 'improvement')}")
-            merge_builder_to_integrate(project_root, branches["builder"], branches["integrate"])
+            committed = commit_all(builder_wt, f"Optimization: {suggestion.get('title', 'improvement')}")
+            if not committed:
+                state.phase = "REPORT"
+                state.breaker_reason = f"Git commit failed for optimization: {suggestion.get('title', 'unknown')}"
+                persist_state(state, run_dir / "state.json")
+                return {"applied": applied}
+
+            merged = merge_builder_to_integrate(project_root, branches["builder"], branches["integrate"])
+            if not merged:
+                state.phase = "REPORT"
+                state.breaker_reason = f"Git merge failed for optimization: {suggestion.get('title', 'unknown')}"
+                persist_state(state, run_dir / "state.json")
+                return {"applied": applied}
+
             applied.append(suggestion.get("title", "unknown"))
             log.info("Applied optimization: %s", suggestion.get("title"))
         else:
             # Revert
-            subprocess.run(
-                ["git", "checkout", "."], cwd=str(builder_wt),
-                text=True, capture_output=True,
-            )
+            _revert_failed_patch(builder_wt, before_untracked)
             log.info("Optimization failed tests, reverted: %s", suggestion.get("title"))
 
     state.optimize_passes_used += 1

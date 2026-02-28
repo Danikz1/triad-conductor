@@ -149,8 +149,20 @@ def run_build(
             if all_passed:
                 log.info("Milestone %s passed smoke tests on iteration %d", milestone_id, state.build_iteration)
                 # Commit and merge
-                commit_all(builder_wt, f"Complete milestone {milestone_id}")
-                merge_builder_to_integrate(project_root, branches["builder"], branches["integrate"])
+                committed = commit_all(builder_wt, f"Complete milestone {milestone_id}")
+                if not committed:
+                    state.phase = "REPORT"
+                    state.breaker_reason = f"Git commit failed for milestone {milestone_id}"
+                    persist_state(state, run_dir / "state.json")
+                    return {"completed": False, "reason": state.breaker_reason}
+
+                merged = merge_builder_to_integrate(project_root, branches["builder"], branches["integrate"])
+                if not merged:
+                    state.phase = "REPORT"
+                    state.breaker_reason = f"Git merge failed for milestone {milestone_id}"
+                    persist_state(state, run_dir / "state.json")
+                    return {"completed": False, "reason": state.breaker_reason}
+
                 state.milestone_index += 1
                 persist_state(state, run_dir / "state.json")
                 break
@@ -310,8 +322,16 @@ def _run_tournament(
     if winner_idx is not None:
         winner = results[winner_idx]
         log.info("Tournament winner: %s (branch %s)", chr(65 + winner_idx), winner["branch"])
-        commit_all(winner["path"], f"Tournament winner for milestone {milestone['id']}")
-        merge_builder_to_integrate(project_root, winner["branch"], branches["integrate"])
+        committed = commit_all(winner["path"], f"Tournament winner for milestone {milestone['id']}")
+        if not committed:
+            log.warning("Tournament winner commit failed for milestone %s", milestone["id"])
+            return False
+
+        merged = merge_builder_to_integrate(project_root, winner["branch"], branches["integrate"])
+        if not merged:
+            log.warning("Tournament winner merge failed for milestone %s", milestone["id"])
+            return False
+
         return True
     else:
         log.warning("Tournament: no clear winner")

@@ -93,3 +93,47 @@ def test_run_build_defaults_change_requests_to_none(tmp_path, monkeypatch):
 
     assert result["completed"] is True
     assert captured["variables"]["CHANGE_REQUESTS"] == "(none)"
+
+
+def test_run_build_blocks_when_commit_fails(tmp_path, monkeypatch):
+    _patch_success_path(monkeypatch)
+    monkeypatch.setattr(build_phase, "commit_all", lambda cwd, msg: False)
+
+    state = RunState(run_id="run-build-commit-fail", started_at=now_ts(), phase="BUILD")
+    context = _minimal_context(tmp_path)
+
+    result = build_phase.run_build(
+        state=state,
+        config=Config(),
+        master_plan=_minimal_master_plan(),
+        context=context,
+        run_dir=tmp_path / "run",
+        limits=Limits(),
+        phase_limits=PhaseLimits(max_build_iterations=2),
+    )
+
+    assert result["completed"] is False
+    assert state.phase == "REPORT"
+    assert state.breaker_reason == "Git commit failed for milestone M1"
+
+
+def test_run_build_blocks_when_merge_fails(tmp_path, monkeypatch):
+    _patch_success_path(monkeypatch)
+    monkeypatch.setattr(build_phase, "merge_builder_to_integrate", lambda *args, **kwargs: False)
+
+    state = RunState(run_id="run-build-merge-fail", started_at=now_ts(), phase="BUILD")
+    context = _minimal_context(tmp_path)
+
+    result = build_phase.run_build(
+        state=state,
+        config=Config(),
+        master_plan=_minimal_master_plan(),
+        context=context,
+        run_dir=tmp_path / "run",
+        limits=Limits(),
+        phase_limits=PhaseLimits(max_build_iterations=2),
+    )
+
+    assert result["completed"] is False
+    assert state.phase == "REPORT"
+    assert state.breaker_reason == "Git merge failed for milestone M1"

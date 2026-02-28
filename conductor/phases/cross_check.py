@@ -156,6 +156,12 @@ def run_cross_check(
                 change_requests.append(f"[QA-{c['severity'].upper()}] {c['title']}: {c['suggested_test_or_fix']}")
 
     context["change_requests"] = change_requests
+    milestones = master_plan.get("milestones", [])
+    if milestones:
+        # Re-enter BUILD on a concrete milestone index so the rework prompt runs.
+        state.milestone_index = min(state.milestone_index, len(milestones) - 1)
+    else:
+        state.milestone_index = 0
     state.final_status = None
     state.phase = "BUILD"
     state.build_iteration = 0  # Reset for the rework

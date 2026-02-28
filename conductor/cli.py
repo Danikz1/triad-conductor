@@ -89,6 +89,24 @@ def _generate_run_id() -> str:
     return f"{ts}_{suffix}"
 
 
+def _exit_code_for_status(status: str) -> int:
+    if status == "SUCCESS":
+        return 0
+    if status == "BLOCKED":
+        return 1
+    if status == "PARTIAL":
+        return 2
+    return 3
+
+
+def _exit_code_for_done_state(state: RunState) -> int:
+    if state.final_status in {"SUCCESS", "BLOCKED", "PARTIAL"}:
+        return _exit_code_for_status(state.final_status)
+    if state.breaker_reason:
+        return 1
+    return 0
+
+
 def _load_dry_run_examples(run_dir: Path) -> dict:
     """Load example JSONs for dry-run mode."""
     examples_dir = ROOT / "examples"
@@ -384,7 +402,7 @@ def main():
     signal.signal(signal.SIGINT, _handle_sigint)
 
     # Phase loop
-    exit_code = 3
+    exit_code = _exit_code_for_done_state(state) if state.phase == "DONE" else 3
     try:
         while state.phase != "DONE":
             # Check breakers before each phase
@@ -470,14 +488,7 @@ def main():
                         run_dir, dry_run=args.dry_run, dry_run_response=dr,
                     )
                     status = result.get("status", "ERROR")
-                    if status == "SUCCESS":
-                        exit_code = 0
-                    elif status == "BLOCKED":
-                        exit_code = 1
-                    elif status == "PARTIAL":
-                        exit_code = 2
-                    else:
-                        exit_code = 3
+                    exit_code = _exit_code_for_status(status)
 
                 case _:
                     logger.error("Unknown phase: %s", state.phase)

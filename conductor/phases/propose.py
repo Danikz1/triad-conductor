@@ -6,6 +6,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 from typing import Any, Optional
 
 from conductor.config import Config
@@ -84,6 +85,12 @@ def run_propose(
     proposals: list[dict[str, Any]] = []
     proposal_records: list[tuple[str, dict[str, Any]]] = []
     errors: list[str] = []
+    state_lock = Lock()
+
+    def _record_usage(cost: float) -> None:
+        with state_lock:
+            state.tool_calls_used += 1
+            state.approx_cost_usd += cost
 
     def _call_proposer(i: int, model_ref):
         dr_resp = dry_run_responses[i] if dry_run_responses and i < len(dry_run_responses) else None
@@ -94,8 +101,7 @@ def run_propose(
             dry_run=dry_run,
             dry_run_response=dr_resp,
         )
-        state.tool_calls_used += 1
-        state.approx_cost_usd += cost
+        _record_usage(cost)
         return i, model_ref.name, result, err
 
     # Parallel invocation
@@ -122,8 +128,7 @@ def run_propose(
                     model_name=name, prompt=retry_prompt,
                     schema_path=_SCHEMA_PATH, dry_run=dry_run, dry_run_response=dr_resp,
                 )
-                state.tool_calls_used += 1
-                state.approx_cost_usd += cost
+                _record_usage(cost)
                 if err:
                     errors.append(f"{name} (retry): {err}")
                     continue

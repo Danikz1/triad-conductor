@@ -47,6 +47,14 @@ while [[ $i -le $# ]]; do
     USE_CURRENT_DIR=1
   elif [[ "$arg" == --* ]]; then
     EXTRA_ARGS+=("$arg")
+    if [[ "$arg" == "--run-id" || "$arg" == "--config" || "$arg" == "--project-root" ]]; then
+      ((i++))
+      if [[ $i -gt $# ]]; then
+        echo "Missing value for $arg"
+        exit 2
+      fi
+      EXTRA_ARGS+=("${!i}")
+    fi
   elif [[ -z "$TASK_PATH" ]]; then
     TASK_PATH="$arg"
   else
@@ -61,7 +69,10 @@ if [[ -z "$TASK_PATH" ]]; then
   elif [[ -f "PROJECT.md" ]]; then
     TASK_PATH="PROJECT.md"
   else
-    mapfile -t MD_FILES < <(find . -maxdepth 1 -type f -name "*.md" | sed 's|^\./||' | sort)
+    MD_FILES=()
+    while IFS= read -r file; do
+      MD_FILES+=("$file")
+    done < <(find . -maxdepth 1 -type f -name "*.md" | sed 's|^\./||' | sort)
     if [[ "${#MD_FILES[@]}" -eq 1 ]]; then
       TASK_PATH="${MD_FILES[0]}"
     else
