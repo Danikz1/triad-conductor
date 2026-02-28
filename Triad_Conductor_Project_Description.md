@@ -360,6 +360,23 @@ Only the conductor merges into integrate (no builder push).
 - `TRIAD_AUTOMATE_PERMISSIONS=1` (default) — Skip permission prompts
 - `TRIAD_DANGEROUS_AUTONOMY=1` — Codex without sandbox (dangerous)
 
+### Model Lifecycle Policy (New Provider Releases)
+
+Goal: keep Triad on the best coding models without silent regressions.
+
+- **Do not rely on blind "latest" aliases in production.**
+  Use explicit/pinned model IDs after validation.
+- **Evaluate new releases on a scheduled cadence** (recommended: weekly).
+  Run a fixed benchmark pack (real repo tasks + tests) and score by:
+  1) test pass rate/correctness, 2) reliability/stability, 3) cost, 4) latency.
+- **Promote only on evidence.**
+  A candidate model replaces the current one only if it beats the active baseline on the benchmark criteria.
+- **Keep rollback immediate.**
+  Retain the previous known-good model set and revert if failure rate rises after promotion.
+- **Current state (important):**
+  Triad currently routes by provider name (`claude`/`codex`/`gemini`) and does not yet enforce per-role pinned model IDs in `config.yaml`.
+  Implementing explicit `model` fields per role plus invoker `--model` forwarding is the next hardening step.
+
 ---
 
 ## 11) Schema Validation
