@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 CONDUCTOR_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PROJECTS_HOME = Path("/Users/daniyarserikson/Projects")
 
+
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
 # ── Access control ──
 
 def _allowed_user_ids() -> Optional[set[int]]:
@@ -392,6 +399,19 @@ async def refine_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     else:
         from conductor.config import Config
         config = Config()
+
+    if not dry_run and not _env_flag_enabled("TRIAD_SKIP_AUTH_PREFLIGHT", False):
+        from conductor.models.preflight import ensure_required_auth
+
+        try:
+            ensure_required_auth(config)
+        except RuntimeError as exc:
+            await update.message.reply_text(
+                "Model auth preflight failed.\n"
+                "Please login and retry /consilium (/refine).\n\n"
+                f"{exc}"
+            )
+            return
 
     run_id = f"refine-{uuid.uuid4().hex[:8]}"
     run_dir = CONDUCTOR_ROOT / "runs" / run_id

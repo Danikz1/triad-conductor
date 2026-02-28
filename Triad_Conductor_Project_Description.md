@@ -52,6 +52,7 @@ Primary launch path:
 - **Triad Architect** idea refinement: 3-persona expansion, heuristic scoring, arbiter synthesis, structured user review, handoff to development
 - `conductor.py ideate` CLI subcommand for non-Telegram refinement
 - Dry-run mode with fixture examples for both conductor and architect pipelines
+- `/consilium` (`/refine`) now enforces model auth preflight before running non-dry refinement
 
 ### Out of Scope (still)
 - Billing/subscription and user management
@@ -647,6 +648,7 @@ Install: `pip install -e ".[telegram]"`
 ## 17) Quality Status
 
 - **Test suite:** 128 tests passing
+- **Test suite:** 130 tests passing
 - **Schema validation:** All 14 schemas verified with fixture examples
 - **Dry-run:** End-to-end verified for both `run` and `ideate` subcommands
 - **Telegram bot:** Verified command handling, runner command forwarding, auto-project-root preparation, and post-run publish reporting
@@ -671,6 +673,7 @@ Install: `pip install -e ".[telegram]"`
 - `triad-start` preflight checks (`--preflight-only`, `--skip-preflight`)
 - `triad-start` auth preflight checks (`--skip-auth-preflight` override available)
 - `conductor.py run` and `conductor.py ideate` enforce model auth preflight by default (`--skip-auth-preflight` or `TRIAD_SKIP_AUTH_PREFLIGHT=1` to bypass)
+- Telegram `/consilium` (`/refine`) also enforces model auth preflight for non-dry runs
 - Per-role model pinning added via `model` in config refs, forwarded to all provider CLIs
 - Codex invoker fallback handles both unknown-option and unexpected-argument flag errors
 - Gemini invoker fallback handles conflicting `--yolo`/`--approval-mode` variants across CLI versions
