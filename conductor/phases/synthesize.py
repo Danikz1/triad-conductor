@@ -46,6 +46,7 @@ def run_synthesize(
 
     result, cost, err = invoke_model_safe(
         model_name=config.arbiter_model.name,
+        model_id=config.arbiter_model.model,
         prompt=prompt,
         schema_path=_SCHEMA_PATH,
         dry_run=dry_run,
@@ -68,7 +69,8 @@ def run_synthesize(
         retry_prompt = prompt + f"\n\n[VALIDATION ERROR]\nErrors: {json.dumps(validation_errors)}"
         result, cost, err = invoke_model_safe(
             model_name=config.arbiter_model.name, prompt=retry_prompt,
-            schema_path=_SCHEMA_PATH, dry_run=dry_run, dry_run_response=dry_run_response,
+            model_id=config.arbiter_model.model, schema_path=_SCHEMA_PATH,
+            dry_run=dry_run, dry_run_response=dry_run_response,
         )
         state.tool_calls_used += 1
         state.approx_cost_usd += cost

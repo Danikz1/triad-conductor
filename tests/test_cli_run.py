@@ -84,3 +84,39 @@ def test_done_state_exit_code_mapping():
     assert cli._exit_code_for_done_state(blocked) == 1
     assert cli._exit_code_for_done_state(partial) == 2
     assert cli._exit_code_for_done_state(implicit_blocked) == 1
+
+
+def test_run_exits_when_auth_preflight_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    monkeypatch.setattr(cli, "setup_logging", lambda run_dir: _DummyLogger())
+    monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+    def _raise_auth_error(config):
+        raise RuntimeError("auth failed")
+    monkeypatch.setattr(cli, "ensure_required_auth", _raise_auth_error)
+
+    run_id = "auth-preflight-fail"
+    task_path = tmp_path / "task.md"
+    task_path.write_text("# Task\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "conductor.py",
+            "run",
+            "--task",
+            str(task_path),
+            "--config",
+            str(config_path),
+            "--run-id",
+            run_id,
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 3

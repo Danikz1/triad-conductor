@@ -10,6 +10,7 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
 fi
 SKIP_PREFLIGHT=0
 PREFLIGHT_ONLY=0
+SKIP_AUTH_PREFLIGHT=0
 
 _first_line() {
   sed -n '1p'
@@ -30,6 +31,7 @@ _version_line() {
 
 _run_preflight() {
   local missing=0
+  local auth_missing=0
   echo "Preflight checks:"
 
   if command -v git >/dev/null 2>&1; then
@@ -89,8 +91,41 @@ _run_preflight() {
     missing=1
   fi
 
-  if [[ "$missing" -ne 0 ]]; then
-    echo "Preflight failed: install missing CLI tools above before running triad-start."
+  if [[ "$SKIP_AUTH_PREFLIGHT" -eq 0 ]]; then
+    if [[ -f "$CONDUCTOR_ROOT/config.yaml" ]]; then
+      local auth_out=""
+      if auth_out="$("$PYTHON_BIN" - "$CONDUCTOR_ROOT/config.yaml" 2>&1 <<'PY'
+from pathlib import Path
+import sys
+
+from conductor.config import load_config
+from conductor.models.preflight import ensure_required_auth
+
+cfg = load_config(Path(sys.argv[1]))
+try:
+    ensure_required_auth(cfg)
+except RuntimeError as exc:
+    print(exc)
+    raise SystemExit(1)
+PY
+)"; then
+        echo "  [OK] model auth preflight"
+      else
+        echo "  [AUTH MISSING] model auth preflight failed:"
+        while IFS= read -r line; do
+          [[ -n "$line" ]] && echo "    $line"
+        done <<< "$auth_out"
+        auth_missing=1
+      fi
+    else
+      echo "  [WARN] config not found for auth preflight: $CONDUCTOR_ROOT/config.yaml"
+    fi
+  else
+    echo "  [SKIPPED] auth preflight (--skip-auth-preflight)"
+  fi
+
+  if [[ "$missing" -ne 0 || "$auth_missing" -ne 0 ]]; then
+    echo "Preflight failed: install missing tools and complete CLI authentication before running triad-start."
     return 3
   fi
 
@@ -107,6 +142,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   echo "  --projects-home PATH    Override projects root (default: $DEFAULT_PROJECTS_HOME)"
   echo "  --use-current-dir       Use current directory as project root (legacy behavior)"
   echo "  --skip-preflight        Skip environment preflight checks"
+  echo "  --skip-auth-preflight   Skip authentication checks (also forwarded to conductor.py)"
   echo "  --preflight-only        Run preflight checks and exit"
   echo "Env:"
   echo "  TRIAD_PROJECTS_HOME     Default projects root (same as --projects-home)"
@@ -138,6 +174,9 @@ while [[ $i -le $# ]]; do
     USE_CURRENT_DIR=1
   elif [[ "$arg" == "--skip-preflight" ]]; then
     SKIP_PREFLIGHT=1
+  elif [[ "$arg" == "--skip-auth-preflight" ]]; then
+    SKIP_AUTH_PREFLIGHT=1
+    EXTRA_ARGS+=("$arg")
   elif [[ "$arg" == "--preflight-only" ]]; then
     PREFLIGHT_ONLY=1
   elif [[ "$arg" == --* ]]; then

@@ -115,6 +115,7 @@ def run_optimize(
         dr_resp = dry_run_responses[i] if dry_run_responses and i < len(dry_run_responses) else None
         result, cost, err = invoke_model_safe(
             model_name=model_ref.name,
+            model_id=model_ref.model,
             prompt=prompt,
             schema_path=_SCHEMA_PATH,
             dry_run=dry_run,

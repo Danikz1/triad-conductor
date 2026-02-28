@@ -74,7 +74,7 @@ The launcher:
 - Auto-detects `project.md` (or uses the file argument you pass)
 - Creates or reuses a project folder under `/Users/daniyarserikson/Projects/<project-name>`
 - Copies the task file, bootstraps git if needed, creates a run id
-- Runs preflight checks for required CLIs (`git`, Python, `claude`, `codex`, `gemini`)
+- Runs preflight checks for required CLIs plus authentication readiness (`claude`, `codex`, `gemini`)
 - Starts `conductor.py run` with that generated folder as `--project-root`
 
 Project name resolution order:
@@ -149,6 +149,9 @@ triad-start project.md --use-current-dir
 
 # Only run environment checks
 triad-start --preflight-only
+
+# Skip auth checks (advanced; not recommended)
+triad-start --skip-auth-preflight
 
 # Skip checks (not recommended)
 triad-start --skip-preflight
@@ -349,12 +352,12 @@ Only the conductor merges into integrate (no builder push).
 ## 10) Model Invocation
 
 ### CLI Commands
-- **Claude:** `claude -p --output-format json --no-session-persistence [--json-schema <path>] [--mcp-config <path>] [--dangerously-skip-permissions]`
-- **Codex:** primary `codex exec - -a never --sandbox <workspace-write|danger-full-access> [-C <dir>]`, compatibility fallback to `codex exec - --full-auto`
+- **Claude:** `claude -p --output-format json --no-session-persistence [--model <id>] [--json-schema <path>] [--mcp-config <path>] [--dangerously-skip-permissions]`
+- **Codex:** primary `codex exec - [--model <id>] -a never --sandbox <workspace-write|danger-full-access> [-C <dir>]`, compatibility fallback to `codex exec - [--model <id>] --full-auto`
 - **Gemini:** tries compatibility sequence:
-  1. `--yolo --approval-mode yolo`
-  2. `--approval-mode=yolo`
-  3. `--yolo`
+  1. `[--model <id>] --yolo --approval-mode yolo`
+  2. `[--model <id>] --approval-mode=yolo`
+  3. `[--model <id>] --yolo`
 
 ### Permission Toggles (env vars)
 - `TRIAD_AUTOMATE_PERMISSIONS=1` (default) — Skip permission prompts
@@ -374,8 +377,8 @@ Goal: keep Triad on the best coding models without silent regressions.
 - **Keep rollback immediate.**
   Retain the previous known-good model set and revert if failure rate rises after promotion.
 - **Current state (important):**
-  Triad currently routes by provider name (`claude`/`codex`/`gemini`) and does not yet enforce per-role pinned model IDs in `config.yaml`.
-  Implementing explicit `model` fields per role plus invoker `--model` forwarding is the next hardening step.
+  Triad now supports per-role `model` pinning in `config.yaml`, and forwards those IDs via provider CLIs (`--model` / `-m`) during invocation.
+  Authentication preflight is enforced before non-dry runs, so runs fail early if required providers are not logged in.
 
 ---
 
@@ -548,7 +551,7 @@ triad-conductor/
 │   ├── expansion_advocate.json
 │   └── refined_spec.json
 │
-├── tests/                          # Test suite (111 tests)
+├── tests/                          # Test suite (128 tests)
 │   ├── conftest.py
 │   ├── test_cli_context.py
 │   ├── test_config.py
@@ -605,17 +608,17 @@ tournament_mode:
 
 models:
   proposer_models:
-    - { name: claude, role: proposer }
-    - { name: codex, role: proposer }
-    - { name: gemini, role: proposer }
-  arbiter_model: { name: claude, role: arbiter }
-  builder_model: { name: codex, role: builder }
-  reviewer_model: { name: claude, role: reviewer }
-  qa_model: { name: gemini, role: qa }
+    - { name: claude, role: proposer, model: opus }
+    - { name: codex, role: proposer, model: gpt-5.3-codex }
+    - { name: gemini, role: proposer, model: gemini-2.5-pro }
+  arbiter_model: { name: claude, role: arbiter, model: opus }
+  builder_model: { name: codex, role: builder, model: gpt-5.3-codex }
+  reviewer_model: { name: claude, role: reviewer, model: opus }
+  qa_model: { name: gemini, role: qa, model: gemini-2.5-pro }
   optimizer_models:
-    - { name: claude, role: optimizer }
-    - { name: codex, role: optimizer }
-    - { name: gemini, role: optimizer }
+    - { name: claude, role: optimizer, model: opus }
+    - { name: codex, role: optimizer, model: gpt-5.3-codex }
+    - { name: gemini, role: optimizer, model: gemini-2.5-pro }
 
 artifacts:
   runs_dir: runs
@@ -643,7 +646,7 @@ Install: `pip install -e ".[telegram]"`
 
 ## 17) Quality Status
 
-- **Test suite:** 111 tests passing
+- **Test suite:** 128 tests passing
 - **Schema validation:** All 14 schemas verified with fixture examples
 - **Dry-run:** End-to-end verified for both `run` and `ideate` subcommands
 - **Telegram bot:** Verified command handling, runner command forwarding, auto-project-root preparation, and post-run publish reporting
@@ -666,6 +669,9 @@ Install: `pip install -e ".[telegram]"`
 
 ### Launcher & CLI compatibility
 - `triad-start` preflight checks (`--preflight-only`, `--skip-preflight`)
+- `triad-start` auth preflight checks (`--skip-auth-preflight` override available)
+- `conductor.py run` and `conductor.py ideate` enforce model auth preflight by default (`--skip-auth-preflight` or `TRIAD_SKIP_AUTH_PREFLIGHT=1` to bypass)
+- Per-role model pinning added via `model` in config refs, forwarded to all provider CLIs
 - Codex invoker fallback handles both unknown-option and unexpected-argument flag errors
 - Gemini invoker fallback handles conflicting `--yolo`/`--approval-mode` variants across CLI versions
 

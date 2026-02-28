@@ -67,6 +67,17 @@ def test_invoke_claude_respects_automation_toggle(monkeypatch):
         assert "--dangerously-skip-permissions" in cmd
 
 
+def test_invoke_claude_includes_model_flag():
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["claude"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_claude("prompt", model_id="opus")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" in cmd
+        assert "opus" in cmd
+
+
 def test_invoke_codex_uses_workspace_write_by_default(monkeypatch):
     monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
     monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
@@ -95,6 +106,18 @@ def test_invoke_codex_uses_danger_sandbox_when_enabled(monkeypatch):
         assert "danger-full-access" in cmd
 
 
+def test_invoke_codex_includes_model_flag(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["codex"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_codex("prompt", model_id="gpt-5.3-codex")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" in cmd
+        assert "gpt-5.3-codex" in cmd
+
+
 def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
     monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
     monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
@@ -112,6 +135,23 @@ def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
         second_cmd = mock_run.call_args_list[1].args[0]
         assert "-a" in first_cmd
         assert "--full-auto" in second_cmd
+
+
+def test_invoke_codex_fallback_preserves_model(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=2, stdout="", stderr="unknown option: -a"
+            ),
+            subprocess.CompletedProcess(
+                args=["codex"], returncode=0, stdout="{}", stderr=""
+            ),
+        ]
+        _invoke_codex("prompt", model_id="gpt-5.3-codex")
+        second_cmd = mock_run.call_args_list[1].args[0]
+        assert "--model" in second_cmd
+        assert "gpt-5.3-codex" in second_cmd
 
 
 def test_invoke_codex_falls_back_to_full_auto_on_unexpected_argument(monkeypatch):
@@ -154,6 +194,18 @@ def test_invoke_gemini_falls_back_to_approval_mode_equals(monkeypatch):
         assert "--approval-mode" in first_cmd
         assert "--approval-mode=yolo" in second_cmd
         assert "--yolo" not in second_cmd
+
+
+def test_invoke_gemini_includes_model_flag(monkeypatch):
+    monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "0")
+    with patch("conductor.models.invoker.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["gemini"], returncode=0, stdout="{}", stderr=""
+        )
+        _invoke_gemini("prompt", model_id="gemini-2.5-pro")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" in cmd
+        assert "gemini-2.5-pro" in cmd
 
 
 def test_invoke_gemini_falls_back_to_yolo_when_approval_unknown(monkeypatch):

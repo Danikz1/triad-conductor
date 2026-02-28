@@ -13,6 +13,7 @@ import yaml
 class ModelRef:
     name: str
     role: str
+    model: str | None = None
 
 
 @dataclass
@@ -75,7 +76,11 @@ class Config:
 
 
 def _parse_model_ref(d: dict[str, str]) -> ModelRef:
-    return ModelRef(name=d["name"], role=d["role"])
+    return ModelRef(
+        name=d["name"],
+        role=d["role"],
+        model=d.get("model"),
+    )
 
 
 def load_config(path: Path) -> Config:

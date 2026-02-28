@@ -13,8 +13,11 @@ def test_load_config(sample_config_path):
     assert cfg.max_build_iterations == 5
     assert len(cfg.proposer_models) == 3
     assert cfg.arbiter_model.name == "claude"
+    assert cfg.arbiter_model.model == "opus"
     assert cfg.builder_model.name == "codex"
+    assert cfg.builder_model.model == "gpt-5.3-codex"
     assert cfg.qa_model.name == "gemini"
+    assert cfg.qa_model.model == "gemini-2.5-pro"
     assert cfg.tournament_enabled is True
     assert len(cfg.denylist_globs) > 0
 

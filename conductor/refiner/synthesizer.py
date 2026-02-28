@@ -54,6 +54,7 @@ def run_synthesize(
     arbiter_model = config.arbiter_model
     result, cost, err = invoke_model_safe(
         model_name=arbiter_model.name,
+        model_id=arbiter_model.model,
         prompt=prompt,
         schema_path=_SCHEMA_PATH,
         dry_run=dry_run,
@@ -76,6 +77,7 @@ def run_synthesize(
         retry_prompt = prompt + f"\n\n[VALIDATION ERROR — fix and output valid JSON]\nErrors: {json.dumps(validation_errors)}"
         result, cost, err = invoke_model_safe(
             model_name=arbiter_model.name,
+            model_id=arbiter_model.model,
             prompt=retry_prompt,
             schema_path=_SCHEMA_PATH,
             dry_run=dry_run,

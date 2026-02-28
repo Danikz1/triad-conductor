@@ -96,13 +96,14 @@ def run_propose(
         dr_resp = dry_run_responses[i] if dry_run_responses and i < len(dry_run_responses) else None
         result, cost, err = invoke_model_safe(
             model_name=model_ref.name,
+            model_id=model_ref.model,
             prompt=prompt,
             schema_path=_SCHEMA_PATH,
             dry_run=dry_run,
             dry_run_response=dr_resp,
         )
         _record_usage(cost)
-        return i, model_ref.name, result, err
+        return i, model_ref.name, model_ref.model, result, err
 
     # Parallel invocation
     with ThreadPoolExecutor(max_workers=3) as executor:
@@ -111,7 +112,7 @@ def run_propose(
             for i, m in enumerate(config.proposer_models)
         ]
         for future in as_completed(futures):
-            i, name, result, err = future.result()
+            i, name, model_id, result, err = future.result()
             if err:
                 errors.append(f"{name}: {err}")
                 log.error("Proposer %s failed: %s", name, err)
@@ -126,7 +127,8 @@ def run_propose(
                 dr_resp = dry_run_responses[i] if dry_run_responses and i < len(dry_run_responses) else None
                 result, cost, err = invoke_model_safe(
                     model_name=name, prompt=retry_prompt,
-                    schema_path=_SCHEMA_PATH, dry_run=dry_run, dry_run_response=dr_resp,
+                    model_id=model_id, schema_path=_SCHEMA_PATH,
+                    dry_run=dry_run, dry_run_response=dr_resp,
                 )
                 _record_usage(cost)
                 if err:

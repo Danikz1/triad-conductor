@@ -108,6 +108,7 @@ def run_build(
             # Invoke builder
             result, cost, err = invoke_model_safe(
                 model_name=config.builder_model.name,
+                model_id=config.builder_model.model,
                 prompt=prompt,
                 schema_path=_SCHEMA_PATH,
                 cwd=builder_wt,
@@ -290,6 +291,7 @@ def _run_tournament(
         prompt = render_prompt("builder", variables)
         result, cost, err = invoke_model_safe(
             model_name=config.builder_model.name,
+            model_id=config.builder_model.model,
             prompt=prompt, schema_path=_SCHEMA_PATH,
             cwd=path, dry_run=dry_run, dry_run_response=dry_run_response,
         )

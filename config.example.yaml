@@ -32,19 +32,20 @@ tournament_mode:
 
 models:
   # You can map these to any providers; the conductor treats them as labels.
+  # Optional "model" pins a specific provider model ID/alias.
   proposer_models:
-    - { name: "claude",   role: "proposer" }
-    - { name: "codex",    role: "proposer" }
-    - { name: "gemini",   role: "proposer" }
+    - { name: "claude",   role: "proposer", model: "opus" }
+    - { name: "codex",    role: "proposer", model: "gpt-5.3-codex" }
+    - { name: "gemini",   role: "proposer", model: "gemini-2.5-pro" }
 
-  arbiter_model:  { name: "claude",  role: "arbiter" }
-  builder_model:  { name: "codex",   role: "builder" }
-  reviewer_model: { name: "claude",  role: "reviewer" }
-  qa_model:       { name: "gemini",  role: "qa" }
+  arbiter_model:  { name: "claude",  role: "arbiter", model: "opus" }
+  builder_model:  { name: "codex",   role: "builder", model: "gpt-5.3-codex" }
+  reviewer_model: { name: "claude",  role: "reviewer", model: "opus" }
+  qa_model:       { name: "gemini",  role: "qa", model: "gemini-2.5-pro" }
   optimizer_models:
-    - { name: "claude", role: "optimizer" }
-    - { name: "codex",  role: "optimizer" }
-    - { name: "gemini", role: "optimizer" }
+    - { name: "claude", role: "optimizer", model: "opus" }
+    - { name: "codex",  role: "optimizer", model: "gpt-5.3-codex" }
+    - { name: "gemini", role: "optimizer", model: "gemini-2.5-pro" }
 
 git:
   # Branch naming template

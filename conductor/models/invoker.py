@@ -57,6 +57,7 @@ def invoke_model(
     schema_path: Optional[Path] = None,
     cwd: Optional[Path] = None,
     mcp_config_path: Optional[Path] = None,
+    model_id: Optional[str] = None,
     dry_run: bool = False,
     dry_run_response: Optional[dict] = None,
 ) -> dict[str, Any]:
@@ -64,6 +65,7 @@ def invoke_model(
 
     Args:
         model_name: One of 'claude', 'codex', 'gemini'.
+        model_id: Explicit provider model ID/alias (optional).
         prompt: Full prompt text (sent via stdin).
         schema_path: Path to JSON schema file (used by claude/gemini for structured output).
         cwd: Working directory (used by codex for repo access).
@@ -84,14 +86,17 @@ def invoke_model(
         return {"kind": "dry_run", "model": model_name}
 
     cost = estimate_cost(model_name)
-    log.info("Invoking %s (est. $%.2f)", model_name, cost)
+    if model_id:
+        log.info("Invoking %s model=%s (est. $%.2f)", model_name, model_id, cost)
+    else:
+        log.info("Invoking %s (est. $%.2f)", model_name, cost)
 
     if model_name == "claude":
-        return _invoke_claude(prompt, schema_path, mcp_config_path), cost
+        return _invoke_claude(prompt, schema_path, mcp_config_path, model_id=model_id), cost
     elif model_name == "codex":
-        return _invoke_codex(prompt, cwd), cost
+        return _invoke_codex(prompt, cwd, model_id=model_id), cost
     elif model_name == "gemini":
-        return _invoke_gemini(prompt, schema_path), cost
+        return _invoke_gemini(prompt, schema_path, model_id=model_id), cost
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -100,6 +105,7 @@ def _invoke_claude(
     prompt: str,
     schema_path: Optional[Path] = None,
     mcp_config_path: Optional[Path] = None,
+    model_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Invoke Claude CLI: claude -p --output-format json ..."""
     cmd = [
@@ -110,6 +116,8 @@ def _invoke_claude(
     automate, _ = _permission_mode()
     if automate:
         cmd.append("--dangerously-skip-permissions")
+    if model_id:
+        cmd += ["--model", model_id]
     if schema_path:
         cmd += ["--json-schema", str(schema_path)]
     if mcp_config_path:
@@ -124,10 +132,16 @@ def _invoke_claude(
     return extract_json(result.stdout)
 
 
-def _invoke_codex(prompt: str, cwd: Optional[Path] = None) -> dict[str, Any]:
+def _invoke_codex(
+    prompt: str,
+    cwd: Optional[Path] = None,
+    model_id: Optional[str] = None,
+) -> dict[str, Any]:
     """Invoke Codex CLI: codex exec - -C <dir> --full-auto"""
     automate, dangerous = _permission_mode()
     cmd = ["codex", "exec", "-"]
+    if model_id:
+        cmd += ["--model", model_id]
     if automate:
         cmd += ["-a", "never", "--sandbox", "danger-full-access" if dangerous else "workspace-write"]
     if cwd:
@@ -141,7 +155,10 @@ def _invoke_codex(prompt: str, cwd: Optional[Path] = None) -> dict[str, Any]:
         and automate
         and _stderr_unknown_option(result.stderr)
     ):
-        fallback_cmd = ["codex", "exec", "-", "--full-auto"]
+        fallback_cmd = ["codex", "exec", "-"]
+        if model_id:
+            fallback_cmd += ["--model", model_id]
+        fallback_cmd += ["--full-auto"]
         if cwd:
             fallback_cmd += ["-C", str(cwd)]
         log.warning("Codex CLI rejected approval/sandbox flags; retrying with --full-auto")
@@ -154,7 +171,11 @@ def _invoke_codex(prompt: str, cwd: Optional[Path] = None) -> dict[str, Any]:
     return extract_json(result.stdout)
 
 
-def _invoke_gemini(prompt: str, schema_path: Optional[Path] = None) -> dict[str, Any]:
+def _invoke_gemini(
+    prompt: str,
+    schema_path: Optional[Path] = None,
+    model_id: Optional[str] = None,
+) -> dict[str, Any]:
     """Invoke Gemini CLI: gemini -p '<prompt>' --output-format json --yolo"""
     # Gemini takes prompt as argument, but we use a temp file for long prompts
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -167,6 +188,8 @@ def _invoke_gemini(prompt: str, schema_path: Optional[Path] = None) -> dict[str,
         prompt_text = f.read()
 
     cmd_base = ["gemini", "-p", "-", "--output-format", "json"]
+    if model_id:
+        cmd_base += ["--model", model_id]
     automate, _ = _permission_mode()
     attempts: list[list[str]]
     if automate:
@@ -214,6 +237,7 @@ def invoke_model_safe(
     schema_path: Optional[Path] = None,
     cwd: Optional[Path] = None,
     mcp_config_path: Optional[Path] = None,
+    model_id: Optional[str] = None,
     dry_run: bool = False,
     dry_run_response: Optional[dict] = None,
 ) -> tuple[Optional[dict[str, Any]], float, Optional[str]]:
@@ -221,6 +245,7 @@ def invoke_model_safe(
     try:
         result = invoke_model(
             model_name, prompt, schema_path, cwd, mcp_config_path,
+            model_id,
             dry_run, dry_run_response,
         )
         if isinstance(result, tuple):

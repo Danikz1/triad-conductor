@@ -78,6 +78,7 @@ def run_report(
 
     result, cost, err = invoke_model_safe(
         model_name=config.reviewer_model.name,  # Use reviewer model for reporting
+        model_id=config.reviewer_model.model,
         prompt=prompt,
         schema_path=schema_path,
         dry_run=dry_run,

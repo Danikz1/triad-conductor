@@ -60,6 +60,7 @@ def run_cross_check(
 
     review_result, cost, err = invoke_model_safe(
         model_name=config.reviewer_model.name,
+        model_id=config.reviewer_model.model,
         prompt=review_prompt,
         schema_path=_REVIEW_SCHEMA,
         dry_run=dry_run,
@@ -89,6 +90,7 @@ def run_cross_check(
 
     qa_result, cost, err = invoke_model_safe(
         model_name=config.qa_model.name,
+        model_id=config.qa_model.model,
         prompt=qa_prompt,
         schema_path=_QA_SCHEMA,
         dry_run=dry_run,

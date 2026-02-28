@@ -24,6 +24,7 @@ from pathlib import Path
 
 from conductor.config import Config, load_config
 from conductor.logging_setup import setup_logging
+from conductor.models.preflight import ensure_required_auth
 from conductor.state import (
     RunState, Limits, PhaseLimits, check_breakers,
     persist_state, load_state, load_json, now_ts,
@@ -89,6 +90,17 @@ def _generate_run_id() -> str:
     return f"{ts}_{suffix}"
 
 
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _should_skip_auth_preflight(cli_skip_flag: bool) -> bool:
+    return cli_skip_flag or _env_flag_enabled("TRIAD_SKIP_AUTH_PREFLIGHT", False)
+
+
 def _exit_code_for_status(status: str) -> int:
     if status == "SUCCESS":
         return 0
@@ -148,6 +160,14 @@ def _run_ideate(args):
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = setup_logging(run_dir)
     logger.info("Starting ideation run %s (dry_run=%s)", run_id, args.dry_run)
+
+    if not args.dry_run and not _should_skip_auth_preflight(args.skip_auth_preflight):
+        try:
+            ensure_required_auth(config)
+        except RuntimeError as exc:
+            logger.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
 
     engine = RefinerEngine(
         run_id=run_id,
@@ -306,6 +326,7 @@ def main():
     run_parser.add_argument("--dry-run", action="store_true", help="Use canned example responses instead of calling models")
     run_parser.add_argument("--project-root", default=None, help="Target project root (for git operations)")
     run_parser.add_argument("--resume", action="store_true", help="Resume an existing run from state.json/context.json")
+    run_parser.add_argument("--skip-auth-preflight", action="store_true", help="Skip model authentication checks")
 
     ideate_parser = sub.add_parser("ideate", help="Refine an idea with Triad Architect before development")
     ideate_parser.add_argument("--idea", required=True, help="Path to idea file (.md/.txt) or inline text")
@@ -314,6 +335,7 @@ def main():
     ideate_parser.add_argument("--dry-run", action="store_true", help="Use canned example responses instead of calling models")
     ideate_parser.add_argument("--constraint", action="append", default=[], help="Add a constraint (repeatable)")
     ideate_parser.add_argument("--auto-approve", action="store_true", help="Auto-approve on convergence (no user interaction)")
+    ideate_parser.add_argument("--skip-auth-preflight", action="store_true", help="Skip model authentication checks")
 
     args = ap.parse_args()
     if args.cmd == "ideate":
@@ -376,6 +398,18 @@ def main():
         persist_context(context, context_state_path)
 
     project_root = context.get("project_root", Path(args.project_root) if args.project_root else ROOT)
+
+    if (
+        state.phase != "DONE"
+        and not args.dry_run
+        and not _should_skip_auth_preflight(args.skip_auth_preflight)
+    ):
+        try:
+            ensure_required_auth(config)
+        except RuntimeError as exc:
+            logger.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
 
     # Limits
     limits = Limits(
