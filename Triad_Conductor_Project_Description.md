@@ -45,8 +45,10 @@ Primary launch path:
 - Circuit breakers: wall time, tool calls, estimated cost, phase loop caps
 - Git branch/worktree orchestration per run (`builder` + `integrate` branches)
 - Redaction utilities for secrets/tokens in prompts/log fragments
-- One-command launcher (`triad-start`) for "new folder + project.md + run"
+- One-command launcher (`triad-start`) for "new folder + project.md + run", now with environment preflight checks
 - Telegram bot integration with `/run`, `/status`, `/stop`, `/refine`, `/approve`, `/reject`, `/history`
+- Telegram `/approve` now auto-prepares `/Users/daniyarserikson/Projects/<project-name>/project.md` + git repo bootstrap
+- Telegram post-run auto-publish: merge `integrate`→`main` (when successful), update project-scoped comprehensive description, create/push GitHub repo, send publish report message
 - **Triad Architect** idea refinement: 3-persona expansion, heuristic scoring, arbiter synthesis, structured user review, handoff to development
 - `conductor.py ideate` CLI subcommand for non-Telegram refinement
 - Dry-run mode with fixture examples for both conductor and architect pipelines
@@ -72,6 +74,7 @@ The launcher:
 - Auto-detects `project.md` (or uses the file argument you pass)
 - Creates or reuses a project folder under `/Users/daniyarserikson/Projects/<project-name>`
 - Copies the task file, bootstraps git if needed, creates a run id
+- Runs preflight checks for required CLIs (`git`, Python, `claude`, `codex`, `gemini`)
 - Starts `conductor.py run` with that generated folder as `--project-root`
 
 Project name resolution order:
@@ -143,6 +146,12 @@ triad-start project.md --projects-home /some/other/root
 
 # Legacy behavior: run in current directory
 triad-start project.md --use-current-dir
+
+# Only run environment checks
+triad-start --preflight-only
+
+# Skip checks (not recommended)
+triad-start --skip-preflight
 ```
 
 ---
@@ -299,7 +308,7 @@ Only the conductor merges into integrate (no builder push).
 | `/status` | Read state.json, show phase/milestone/cost |
 | `/stop` | SIGINT → conductor's clean shutdown |
 | `/refine [--dry-run]` | Start Triad Architect on pending task |
-| `/approve` | Approve refined spec, trigger handoff |
+| `/approve` | Approve refined spec, trigger handoff, and auto-prepare `/Users/daniyarserikson/Projects/<project-name>` |
 | `/reject` | Reject and clear refinement |
 | `/history` | Show feedback history for current refinement |
 | (text message) | Store as pending task, or feedback if refiner active |
@@ -308,12 +317,32 @@ Only the conductor merges into integrate (no builder push).
 ### Configuration
 - `TELEGRAM_BOT_TOKEN` — Bot token in `.env`
 - `TELEGRAM_ALLOWED_USERS` — Comma-separated user IDs (empty = allow all)
+- `TRIAD_PROJECTS_HOME` — Override default projects root (`/Users/daniyarserikson/Projects`)
+- `TRIAD_GITHUB_AUTO_PUBLISH` — `1` (default) to auto-create/push GitHub repo after run, `0` to disable
+- `TRIAD_GITHUB_OWNER` — Optional owner/org for `gh repo create` (otherwise uses authenticated default)
+- `TRIAD_GITHUB_VISIBILITY` — `private` (default), `public`, or `internal`
 
 ### Architecture
 - Subprocess model: bot spawns `conductor.py run` as child process per run
 - State polling: reads `state.json` every 2s for phase transitions
 - One active run per chat
 - Refiner sessions stored in `chat_data` (per-chat, in-memory)
+- After `/approve`, bot stores pending task + pending project root and initializes git in that folder
+- `/run` uses stored project root by default (unless explicit `--project-root` is provided)
+- On completion, bot sends:
+  1. final run summary
+  2. publish summary (description update + GitHub create/push status + remote URL + errors)
+  3. `state.json` attachment
+
+### Auto-generated Project Description File
+- File path pattern: `<project-name>_PROJECT_DESCRIPTION.md` in the project root
+- Example: `Mukhtar-AI_PROJECT_DESCRIPTION.md`
+- Contents include:
+  - source project description (`project.md`)
+  - latest run status/cost/tool calls
+  - final/blocked report snapshot
+  - artifact list
+  - GitHub remote link (if available)
 
 ---
 
@@ -321,8 +350,11 @@ Only the conductor merges into integrate (no builder push).
 
 ### CLI Commands
 - **Claude:** `claude -p --output-format json --no-session-persistence [--json-schema <path>] [--mcp-config <path>] [--dangerously-skip-permissions]`
-- **Codex:** `codex exec - [-a never --sandbox workspace-write] [-C <dir>]`
-- **Gemini:** `gemini [--yolo --approval-mode yolo]`
+- **Codex:** primary `codex exec - -a never --sandbox <workspace-write|danger-full-access> [-C <dir>]`, compatibility fallback to `codex exec - --full-auto`
+- **Gemini:** tries compatibility sequence:
+  1. `--yolo --approval-mode yolo`
+  2. `--approval-mode=yolo`
+  3. `--yolo`
 
 ### Permission Toggles (env vars)
 - `TRIAD_AUTOMATE_PERMISSIONS=1` (default) — Skip permission prompts
@@ -499,7 +531,7 @@ triad-conductor/
 │   ├── expansion_advocate.json
 │   └── refined_spec.json
 │
-├── tests/                          # Test suite (93 tests)
+├── tests/                          # Test suite (111 tests)
 │   ├── conftest.py
 │   ├── test_cli_context.py
 │   ├── test_config.py
@@ -594,14 +626,31 @@ Install: `pip install -e ".[telegram]"`
 
 ## 17) Quality Status
 
-- **Test suite:** 93 tests passing
+- **Test suite:** 111 tests passing
 - **Schema validation:** All 14 schemas verified with fixture examples
 - **Dry-run:** End-to-end verified for both `run` and `ideate` subcommands
-- **Telegram bot:** Verified start + handler registration
+- **Telegram bot:** Verified command handling, runner command forwarding, auto-project-root preparation, and post-run publish reporting
 
 ---
 
 ## 18) Recent Changes
+
+### Telegram deployment/publishing automation
+- `/approve` now auto-creates project root under `/Users/daniyarserikson/Projects/<project-name>`
+- Approved spec is written into `<project-root>/project.md`
+- Git repo bootstrap is automatic for prepared project roots
+- `/run` now defaults to the prepared project root (override still possible with `--project-root`)
+- Post-run publishing pipeline added:
+  - merge `run/<run_id>/integrate` into `main` for successful/partial runs
+  - update comprehensive project description file named `<project-name>_PROJECT_DESCRIPTION.md`
+  - create GitHub repo via `gh repo create` when missing
+  - push `main` to `origin`
+  - send Telegram publish report summary message
+
+### Launcher & CLI compatibility
+- `triad-start` preflight checks (`--preflight-only`, `--skip-preflight`)
+- Codex invoker fallback handles both unknown-option and unexpected-argument flag errors
+- Gemini invoker fallback handles conflicting `--yolo`/`--approval-mode` variants across CLI versions
 
 ### Triad Architect (idea refinement system)
 - 6 new JSON schemas for the refinement pipeline
