@@ -88,6 +88,41 @@ def format_final_report(state: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_heartbeat(
+    state: Dict[str, Any],
+    *,
+    last_activity: str = "",
+    state_age_seconds: Optional[float] = None,
+) -> str:
+    """Format periodic heartbeat while run stays in same phase."""
+    run_id = state.get("run_id", "?")
+    phase = state.get("phase", "UNKNOWN")
+    cost = state.get("approx_cost_usd", 0.0)
+    tool_calls = state.get("tool_calls_used", 0)
+    started_at = state.get("started_at", 0)
+
+    import time
+    elapsed_s = time.time() - started_at if started_at else 0
+    elapsed_min = elapsed_s / 60.0
+
+    lines = [
+        "\u23f1\ufe0f <b>Heartbeat</b>",
+        f"<b>Run:</b> <code>{html.escape(str(run_id))}</code>",
+        f"<b>Phase:</b> {phase_label(str(phase))}",
+        f"<b>Cost so far:</b> ${float(cost):.2f}",
+        f"<b>Tool calls:</b> {int(tool_calls)}",
+        f"<b>Elapsed:</b> {elapsed_min:.1f} min",
+    ]
+
+    if state_age_seconds is not None:
+        lines.append(f"<b>State age:</b> {max(0.0, state_age_seconds):.0f}s")
+
+    if last_activity:
+        lines.append(f"<b>Latest activity:</b> <code>{html.escape(last_activity)}</code>")
+
+    return "\n".join(lines)
+
+
 def format_publish_report(report: Dict[str, Any]) -> str:
     """Format post-run publishing results (description update + GitHub push)."""
     project_root = html.escape(str(report.get("project_root") or "n/a"))

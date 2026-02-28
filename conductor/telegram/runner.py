@@ -21,6 +21,7 @@ from telegram import Bot
 
 from .formatting import (
     format_final_report,
+    format_heartbeat,
     format_phase_change,
     format_publish_report,
     format_status,
@@ -171,6 +172,16 @@ class RunnerManager:
     def __init__(self, bot: Bot) -> None:
         self._bot = bot
         self._runs: Dict[int, ActiveRun] = {}  # chat_id -> ActiveRun
+
+    def _heartbeat_interval_seconds(self) -> float:
+        raw = os.environ.get("TRIAD_TELEGRAM_HEARTBEAT_SECONDS", "60").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            return 60.0
+        if value <= 0:
+            return 60.0
+        return value
 
     def has_active_run(self, chat_id: int) -> bool:
         run = self._runs.get(chat_id)
@@ -525,11 +536,45 @@ class RunnerManager:
 
         return publish_report
 
+    def _state_age_seconds(self, state_path: Path) -> Optional[float]:
+        try:
+            mtime = state_path.stat().st_mtime
+        except OSError:
+            return None
+        return time.time() - mtime
+
+    def _read_last_activity_line(self, run: ActiveRun) -> str:
+        log_path = run.conductor_root / "runs" / run.run_id / "artifacts" / "logs" / "conductor.log"
+        if not log_path.exists():
+            return ""
+        try:
+            with log_path.open("rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 4096), os.SEEK_SET)
+                chunk = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+        for line in reversed(chunk.splitlines()):
+            s = line.strip()
+            if s:
+                return s[:280]
+        return ""
+
+    def _build_heartbeat_text(self, run: ActiveRun, state: dict[str, Any], state_path: Path) -> str:
+        return format_heartbeat(
+            state,
+            last_activity=self._read_last_activity_line(run),
+            state_age_seconds=self._state_age_seconds(state_path),
+        )
+
     # ── internal ──
 
     async def _poll_state(self, run: ActiveRun) -> None:
         """Poll state.json every POLL_INTERVAL_S and notify on phase changes."""
         state_path = run.conductor_root / "runs" / run.run_id / "state.json"
+        heartbeat_interval = self._heartbeat_interval_seconds()
+        last_heartbeat_at = time.time()
 
         try:
             while True:
@@ -559,6 +604,18 @@ class RunnerManager:
                     if current_phase == "DONE":
                         await self._send_completion(run, state_path)
                         break
+                    last_heartbeat_at = time.time()
+                    continue
+
+                now = time.time()
+                if now - last_heartbeat_at >= heartbeat_interval:
+                    heartbeat_text = self._build_heartbeat_text(run, state, state_path)
+                    await self._bot.send_message(
+                        chat_id=run.chat_id,
+                        text=heartbeat_text,
+                        parse_mode="HTML",
+                    )
+                    last_heartbeat_at = now
         except asyncio.CancelledError:
             pass
         except Exception:
