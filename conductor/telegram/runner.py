@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ import subprocess
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -26,7 +27,9 @@ from .formatting import (
     format_phase_change,
     format_publish_report,
     format_status,
+    format_stuck_alert,
 )
+from .store import TelegramStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -165,14 +168,18 @@ class ActiveRun:
     project_root: Optional[Path] = None
     poll_task: Optional[asyncio.Task] = None
     last_phase: str = "INTAKE"
+    started_at: float = field(default_factory=time.time)
+    last_phase_change_at: float = field(default_factory=time.time)
+    last_stuck_alert_at: float = 0.0
 
 
 class RunnerManager:
     """Manages one active conductor run per Telegram chat."""
 
-    def __init__(self, bot: Bot) -> None:
+    def __init__(self, bot: Bot, store: Optional[TelegramStateStore] = None) -> None:
         self._bot = bot
         self._runs: Dict[int, ActiveRun] = {}  # chat_id -> ActiveRun
+        self._store = store
 
     def _auto_open_monitor_enabled(self) -> bool:
         raw = os.environ.get("TRIAD_TELEGRAM_AUTO_OPEN_MONITOR", "1").strip().lower()
@@ -235,15 +242,51 @@ class RunnerManager:
             return 60.0
         return value
 
+    def _stuck_alert_seconds(self) -> float:
+        raw = os.environ.get("TRIAD_TELEGRAM_STUCK_ALERT_SECONDS", "600").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            return 600.0
+        if value <= 0:
+            return 600.0
+        return value
+
+    def _stuck_alert_cooldown_seconds(self) -> float:
+        raw = os.environ.get("TRIAD_TELEGRAM_STUCK_ALERT_COOLDOWN_SECONDS", "600").strip()
+        try:
+            value = float(raw)
+        except ValueError:
+            return 600.0
+        if value <= 0:
+            return 600.0
+        return value
+
+    def queue_depth(self, chat_id: int) -> int:
+        if not self._store:
+            return 0
+        return self._store.queue_depth(chat_id=chat_id)
+
     def has_active_run(self, chat_id: int) -> bool:
         run = self._runs.get(chat_id)
         if run is None:
+            if self._store:
+                self._store.clear_active_run(chat_id=chat_id)
             return False
         # Clean up finished processes
         if run.process.poll() is not None:
             self._cleanup(chat_id)
             return False
         return True
+
+    def active_run_id(self, chat_id: int) -> Optional[str]:
+        run = self._runs.get(chat_id)
+        if run is None:
+            return None
+        if run.process.poll() is not None:
+            self._cleanup(chat_id)
+            return None
+        return run.run_id
 
     def get_status(self, chat_id: int) -> Optional[str]:
         """Read current state.json and return formatted status, or None."""
@@ -260,6 +303,55 @@ class RunnerManager:
             logger.warning("Failed to read state.json: %s", exc)
             return None
 
+    def get_health(self, chat_id: int) -> Optional[dict[str, Any]]:
+        run = self._runs.get(chat_id)
+        if run is None:
+            return None
+        if run.process.poll() is not None:
+            self._cleanup(chat_id)
+            return None
+
+        state_path = run.conductor_root / "runs" / run.run_id / "state.json"
+        state = _read_json(state_path) or {}
+        phase = str(state.get("phase") or run.last_phase or "UNKNOWN")
+        age_seconds = self._state_age_seconds(state_path)
+        phase_seconds = max(0.0, time.time() - run.last_phase_change_at)
+        stuck_threshold = self._stuck_alert_seconds()
+        is_stuck = phase != "DONE" and phase_seconds >= stuck_threshold
+        return {
+            "run_id": run.run_id,
+            "phase": phase,
+            "phase_age_seconds": phase_seconds,
+            "state_age_seconds": age_seconds,
+            "last_activity": self._read_last_activity_line(run),
+            "queue_depth": self.queue_depth(chat_id),
+            "stuck_threshold_seconds": stuck_threshold,
+            "is_stuck": is_stuck,
+        }
+
+    def get_recent_logs(self, chat_id: int, *, lines: int = 20) -> Optional[list[str]]:
+        run = self._runs.get(chat_id)
+        if run is None:
+            return None
+        if run.process.poll() is not None:
+            self._cleanup(chat_id)
+            return None
+
+        log_path = run.conductor_root / "runs" / run.run_id / "artifacts" / "logs" / "conductor.log"
+        if not log_path.exists():
+            return []
+        max_lines = min(max(int(lines), 1), 80)
+        try:
+            with log_path.open("rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 32768), os.SEEK_SET)
+                chunk = f.read().decode("utf-8", errors="replace")
+        except OSError:
+            return []
+        entries = [line.rstrip() for line in chunk.splitlines() if line.strip()]
+        return entries[-max_lines:]
+
     async def start_run(
         self,
         chat_id: int,
@@ -269,6 +361,9 @@ class RunnerManager:
         config_path: Optional[Path] = None,
     ) -> str:
         """Write task to file, spawn conductor, start poll loop. Returns run_id."""
+        if self.has_active_run(chat_id):
+            raise RuntimeError("Run is already active for this chat.")
+
         conductor_root = CONDUCTOR_ROOT
         target_project_root = project_root
         run_id = f"tg-{uuid.uuid4().hex[:8]}"
@@ -310,14 +405,76 @@ class RunnerManager:
             conductor_root=conductor_root,
             task_file=task_file,
             project_root=target_project_root,
+            last_phase="INTAKE",
         )
         self._runs[chat_id] = active
+        if self._store:
+            self._store.register_active_run(
+                chat_id=chat_id,
+                run_id=run_id,
+                task_file=task_file,
+                project_root=target_project_root,
+                last_phase=active.last_phase,
+            )
 
         self._auto_open_local_monitor(active)
 
         # Start async poll loop
         active.poll_task = asyncio.create_task(self._poll_state(active))
         return run_id
+
+    def queue_run(
+        self,
+        *,
+        chat_id: int,
+        task_text: str,
+        dry_run: bool,
+        project_root: Optional[Path],
+        config_path: Optional[Path] = None,
+    ) -> int:
+        if not self._store:
+            raise RuntimeError("Queue is not configured.")
+        return self._store.enqueue_run(
+            chat_id=chat_id,
+            task_text=task_text,
+            dry_run=dry_run,
+            project_root=project_root,
+            config_path=config_path,
+        )
+
+    async def _start_next_queued_run(self, chat_id: int) -> None:
+        if self.has_active_run(chat_id):
+            return
+        if not self._store:
+            return
+        queued = self._store.pop_next_run(chat_id=chat_id)
+        if queued is None:
+            return
+        try:
+            run_id = await self.start_run(
+                chat_id=chat_id,
+                task_text=queued.task_text,
+                dry_run=queued.dry_run,
+                project_root=queued.project_root,
+                config_path=queued.config_path,
+            )
+        except Exception as exc:
+            logger.exception("Failed to start queued run for chat %s", chat_id)
+            await self._bot.send_message(
+                chat_id=chat_id,
+                text=f"Queued run failed to start: {exc}",
+            )
+            return
+
+        monitor_cmd = self.local_monitor_command(run_id, queued.project_root)
+        await self._bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"\U0001f680 Started queued run <code>{run_id}</code>.\n"
+                f"Local live monitor command:\n<code>{html.escape(monitor_cmd)}</code>"
+            ),
+            parse_mode="HTML",
+        )
 
     async def stop_run(self, chat_id: int) -> bool:
         """Send SIGINT to the conductor subprocess. Returns True if a run was stopped."""
@@ -622,6 +779,21 @@ class RunnerManager:
             state_age_seconds=self._state_age_seconds(state_path),
         )
 
+    def _should_send_stuck_alert(self, run: ActiveRun, phase: str, state_path: Path) -> bool:
+        if phase == "DONE":
+            return False
+        threshold = self._stuck_alert_seconds()
+        now = time.time()
+        phase_age = now - run.last_phase_change_at
+        state_age = self._state_age_seconds(state_path) or 0.0
+        if phase_age < threshold and state_age < threshold:
+            return False
+        cooldown = self._stuck_alert_cooldown_seconds()
+        if run.last_stuck_alert_at and (now - run.last_stuck_alert_at) < cooldown:
+            return False
+        run.last_stuck_alert_at = now
+        return True
+
     # ── internal ──
 
     async def _poll_state(self, run: ActiveRun) -> None:
@@ -653,7 +825,11 @@ class RunnerManager:
                     await self._bot.send_message(
                         chat_id=run.chat_id, text=msg, parse_mode="HTML"
                     )
-                    run.last_phase = current_phase
+                    run.last_phase = str(current_phase)
+                    run.last_phase_change_at = time.time()
+                    run.last_stuck_alert_at = 0.0
+                    if self._store:
+                        self._store.update_active_phase(chat_id=run.chat_id, phase=str(current_phase))
 
                     if current_phase == "DONE":
                         await self._send_completion(run, state_path)
@@ -670,12 +846,25 @@ class RunnerManager:
                         parse_mode="HTML",
                     )
                     last_heartbeat_at = now
+
+                if self._should_send_stuck_alert(run, str(current_phase), state_path):
+                    await self._bot.send_message(
+                        chat_id=run.chat_id,
+                        text=format_stuck_alert(
+                            state,
+                            phase_age_seconds=max(0.0, time.time() - run.last_phase_change_at),
+                            state_age_seconds=self._state_age_seconds(state_path),
+                            last_activity=self._read_last_activity_line(run),
+                        ),
+                        parse_mode="HTML",
+                    )
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("Poll loop error for run %s", run.run_id)
         finally:
             self._cleanup(run.chat_id)
+            await self._start_next_queued_run(run.chat_id)
 
     async def _send_completion(self, run: ActiveRun, state_path: Path) -> None:
         """Send the final report and state.json as an attachment."""
@@ -697,6 +886,18 @@ class RunnerManager:
             chat_id=run.chat_id, text=publish_text, parse_mode="HTML"
         )
 
+        if self._store:
+            self._store.record_run_finished(
+                run_id=run.run_id,
+                chat_id=run.chat_id,
+                status=str(publish_report.get("run_status") or "UNKNOWN"),
+                phase=str(state.get("phase") or ""),
+                started_at=run.started_at,
+                finished_at=time.time(),
+                project_root=run.project_root,
+                state_path=state_path,
+            )
+
         # Send state.json as a file attachment
         if state_path.exists():
             await self._bot.send_document(
@@ -709,9 +910,16 @@ class RunnerManager:
     def _cleanup(self, chat_id: int) -> None:
         """Remove run from tracking and cancel poll task."""
         run = self._runs.pop(chat_id, None)
+        if self._store:
+            self._store.clear_active_run(chat_id=chat_id)
         if run is None:
             return
-        if run.poll_task and not run.poll_task.done():
+        current_task = None
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if run.poll_task and run.poll_task is not current_task and not run.poll_task.done():
             run.poll_task.cancel()
         # Ensure process is terminated
         if run.process.poll() is None:

@@ -4,6 +4,7 @@ Usage:
     python conductor.py run --task <path> --config <path> [--run-id <id>] [--dry-run]
     python conductor.py run --task tasks/my_task.md --config config.yaml
     python conductor.py ideate --idea <path-or-text> --config <path> [--dry-run]
+    python conductor.py doctor [--config <path>] [--json]
 
 Exit codes:
     0 = SUCCESS
@@ -25,6 +26,7 @@ from pathlib import Path
 from conductor.config import Config, load_config
 from conductor.logging_setup import setup_logging
 from conductor.models.preflight import ensure_required_auth
+from conductor.models.version_gate import ensure_supported_cli_versions
 from conductor.state import (
     RunState, Limits, PhaseLimits, check_breakers,
     persist_state, load_state, load_json, now_ts,
@@ -101,6 +103,10 @@ def _should_skip_auth_preflight(cli_skip_flag: bool) -> bool:
     return cli_skip_flag or _env_flag_enabled("TRIAD_SKIP_AUTH_PREFLIGHT", False)
 
 
+def _should_skip_version_gate(cli_skip_flag: bool) -> bool:
+    return cli_skip_flag or _env_flag_enabled("TRIAD_SKIP_VERSION_GATE", False)
+
+
 def _exit_code_for_status(status: str) -> int:
     if status == "SUCCESS":
         return 0
@@ -139,6 +145,13 @@ def _run_ideate(args):
         print(f"Config not found: {config_path}", file=sys.stderr)
         sys.exit(3)
     config = load_config(config_path)
+
+    if not args.dry_run and not _should_skip_version_gate(args.skip_version_gate):
+        try:
+            ensure_supported_cli_versions(config)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
 
     # Read idea text
     idea_path = Path(args.idea)
@@ -327,6 +340,7 @@ def main():
     run_parser.add_argument("--project-root", default=None, help="Target project root (for git operations)")
     run_parser.add_argument("--resume", action="store_true", help="Resume an existing run from state.json/context.json")
     run_parser.add_argument("--skip-auth-preflight", action="store_true", help="Skip model authentication checks")
+    run_parser.add_argument("--skip-version-gate", action="store_true", help="Skip minimum CLI version checks")
 
     ideate_parser = sub.add_parser("ideate", help="Refine an idea with Triad Architect before development")
     ideate_parser.add_argument("--idea", required=True, help="Path to idea file (.md/.txt) or inline text")
@@ -336,10 +350,29 @@ def main():
     ideate_parser.add_argument("--constraint", action="append", default=[], help="Add a constraint (repeatable)")
     ideate_parser.add_argument("--auto-approve", action="store_true", help="Auto-approve on convergence (no user interaction)")
     ideate_parser.add_argument("--skip-auth-preflight", action="store_true", help="Skip model authentication checks")
+    ideate_parser.add_argument("--skip-version-gate", action="store_true", help="Skip minimum CLI version checks")
+
+    doctor_parser = sub.add_parser("doctor", help="Run environment diagnostics")
+    doctor_parser.add_argument("--config", default="config.yaml", help="Path to config YAML")
+    doctor_parser.add_argument("--json", action="store_true", help="Print JSON output")
+    doctor_parser.add_argument("--skip-auth-preflight", action="store_true", help="Skip auth checks")
+    doctor_parser.add_argument("--skip-version-gate", action="store_true", help="Skip minimum CLI version checks")
 
     args = ap.parse_args()
     if args.cmd == "ideate":
         return _run_ideate(args)
+    if args.cmd == "doctor":
+        from conductor.doctor import doctor_json, format_doctor_report, run_doctor
+
+        cfg_path = Path(args.config)
+        config = load_config(cfg_path) if cfg_path.exists() else Config()
+        report = run_doctor(
+            config=config,
+            check_auth=not _should_skip_auth_preflight(args.skip_auth_preflight),
+            check_versions=not _should_skip_version_gate(args.skip_version_gate),
+        )
+        print(doctor_json(report) if args.json else format_doctor_report(report))
+        sys.exit(0 if report.get("ok") else 3)
     if args.cmd != "run":
         ap.print_help()
         sys.exit(3)
@@ -350,6 +383,13 @@ def main():
         print(f"Config not found: {config_path}", file=sys.stderr)
         sys.exit(3)
     config = load_config(config_path)
+
+    if not args.dry_run and not _should_skip_version_gate(args.skip_version_gate):
+        try:
+            ensure_supported_cli_versions(config)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
 
     # Setup run
     run_id = args.run_id or _generate_run_id()

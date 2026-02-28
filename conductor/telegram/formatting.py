@@ -165,3 +165,68 @@ def format_publish_report(report: Dict[str, Any]) -> str:
             lines.append(f"- {html.escape(str(err))}")
 
     return "\n".join(lines)
+
+
+def format_stuck_alert(
+    state: Dict[str, Any],
+    *,
+    phase_age_seconds: float,
+    state_age_seconds: Optional[float],
+    last_activity: str,
+) -> str:
+    """Format alert for prolonged phase/no fresh state updates."""
+    run_id = html.escape(str(state.get("run_id", "?")))
+    phase = html.escape(str(state.get("phase", "UNKNOWN")))
+    lines = [
+        "\u26a0\ufe0f <b>Stuck Alert</b>",
+        f"<b>Run:</b> <code>{run_id}</code>",
+        f"<b>Phase:</b> {phase_label(phase)}",
+        f"<b>Time in phase:</b> {max(0.0, phase_age_seconds):.0f}s",
+    ]
+    if state_age_seconds is not None:
+        lines.append(f"<b>State age:</b> {max(0.0, state_age_seconds):.0f}s")
+    if last_activity:
+        lines.append(f"<b>Latest activity:</b> <code>{html.escape(last_activity)}</code>")
+    return "\n".join(lines)
+
+
+def format_health_report(health: Dict[str, Any]) -> str:
+    """Format a /health snapshot."""
+    run_id = html.escape(str(health.get("run_id") or "?"))
+    phase = html.escape(str(health.get("phase") or "UNKNOWN"))
+    queue_depth = int(health.get("queue_depth", 0))
+    phase_age = float(health.get("phase_age_seconds", 0.0))
+    state_age = health.get("state_age_seconds")
+    stuck = bool(health.get("is_stuck", False))
+    threshold = float(health.get("stuck_threshold_seconds", 0.0))
+
+    lines = [
+        "\U0001fa7a <b>Health</b>",
+        f"<b>Run:</b> <code>{run_id}</code>",
+        f"<b>Phase:</b> {phase_label(phase)}",
+        f"<b>Phase age:</b> {max(0.0, phase_age):.0f}s",
+        f"<b>Queue depth:</b> {queue_depth}",
+        f"<b>Stuck threshold:</b> {max(0.0, threshold):.0f}s",
+        f"<b>Stuck:</b> {'yes' if stuck else 'no'}",
+    ]
+    if state_age is not None:
+        lines.append(f"<b>State age:</b> {max(0.0, float(state_age)):.0f}s")
+    last_activity = str(health.get("last_activity") or "")
+    if last_activity:
+        lines.append(f"<b>Latest activity:</b> <code>{html.escape(last_activity)}</code>")
+    return "\n".join(lines)
+
+
+def format_logs_report(run_id: str, lines: list[str]) -> str:
+    """Format /logs output with a bounded <pre> block."""
+    escaped_lines = [html.escape(line) for line in lines]
+    payload = "\n".join(escaped_lines).strip()
+    if not payload:
+        payload = "(no logs yet)"
+    # Keep comfortably below Telegram's 4096 message limit.
+    payload = payload[-3200:]
+    return (
+        "\U0001f4dc <b>Recent Logs</b>\n"
+        f"<b>Run:</b> <code>{html.escape(run_id)}</code>\n"
+        f"<pre>{payload}</pre>"
+    )

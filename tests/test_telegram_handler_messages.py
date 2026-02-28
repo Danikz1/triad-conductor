@@ -31,6 +31,8 @@ def test_help_message_lists_consilium_and_develop(monkeypatch):
     assert "/refine" in text
     assert "/run" in text
     assert "/develop" in text
+    assert "/health" in text
+    assert "/logs" in text
     assert "/approve" in text
 
 

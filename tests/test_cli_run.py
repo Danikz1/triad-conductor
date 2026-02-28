@@ -29,6 +29,7 @@ def test_resume_done_run_exits_success(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "ROOT", tmp_path)
     monkeypatch.setattr(cli, "setup_logging", lambda run_dir: _DummyLogger())
     monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "ensure_supported_cli_versions", lambda config: None)
 
     run_id = "resume-done"
     task_path = tmp_path / "task.md"
@@ -90,6 +91,7 @@ def test_run_exits_when_auth_preflight_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "ROOT", tmp_path)
     monkeypatch.setattr(cli, "setup_logging", lambda run_dir: _DummyLogger())
     monkeypatch.setattr(cli.signal, "signal", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "ensure_supported_cli_versions", lambda config: None)
     def _raise_auth_error(config):
         raise RuntimeError("auth failed")
     monkeypatch.setattr(cli, "ensure_required_auth", _raise_auth_error)

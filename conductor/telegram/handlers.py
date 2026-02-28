@@ -15,7 +15,9 @@ from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from .formatting import format_health_report, format_logs_report
 from .runner import RunnerManager
+from .store import TelegramStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -55,27 +57,74 @@ def _is_authorized(update: Update) -> bool:
 
 # ── Pending task storage (per-chat in bot_data) ──
 
-def _get_pending_task(context: ContextTypes.DEFAULT_TYPE) -> Optional[str]:
+def _get_store(context: ContextTypes.DEFAULT_TYPE) -> Optional[TelegramStateStore]:
+    bot_data = getattr(context, "bot_data", None)
+    if isinstance(bot_data, dict):
+        store = bot_data.get("store")
+        if isinstance(store, TelegramStateStore):
+            return store
+    return None
+
+
+def _get_pending_task(context: ContextTypes.DEFAULT_TYPE, chat_id: Optional[int] = None) -> Optional[str]:
+    if chat_id is not None:
+        store = _get_store(context)
+        if store:
+            task, _ = store.get_pending_task(chat_id=chat_id)
+            return task
     return context.chat_data.get("pending_task")
 
 
-def _set_pending_task(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
+def _set_pending_task(
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+    chat_id: Optional[int] = None,
+    project_root: Optional[Path] = None,
+) -> None:
+    if chat_id is not None:
+        store = _get_store(context)
+        if store:
+            store.set_pending_task(chat_id=chat_id, task_text=text, project_root=project_root)
     context.chat_data["pending_task"] = text
+    if project_root is not None:
+        context.chat_data["pending_project_root"] = str(project_root)
 
 
-def _clear_pending_task(context: ContextTypes.DEFAULT_TYPE) -> None:
+def _clear_pending_task(context: ContextTypes.DEFAULT_TYPE, chat_id: Optional[int] = None) -> None:
+    if chat_id is not None:
+        store = _get_store(context)
+        if store:
+            store.clear_pending_task(chat_id=chat_id)
     context.chat_data.pop("pending_task", None)
     _clear_pending_project_root(context)
 
 
-def _get_pending_project_root(context: ContextTypes.DEFAULT_TYPE) -> Optional[Path]:
+def _get_pending_project_root(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: Optional[int] = None,
+) -> Optional[Path]:
+    if chat_id is not None:
+        store = _get_store(context)
+        if store:
+            _, root = store.get_pending_task(chat_id=chat_id)
+            if root:
+                return root
     raw = context.chat_data.get("pending_project_root")
     if not raw:
         return None
     return Path(raw)
 
 
-def _set_pending_project_root(context: ContextTypes.DEFAULT_TYPE, path: Path) -> None:
+def _set_pending_project_root(
+    context: ContextTypes.DEFAULT_TYPE,
+    path: Path,
+    chat_id: Optional[int] = None,
+) -> None:
+    if chat_id is not None:
+        task_text = _get_pending_task(context, chat_id=chat_id) or ""
+        store = _get_store(context)
+        if store and task_text:
+            store.set_pending_task(chat_id=chat_id, task_text=task_text, project_root=path)
     context.chat_data["pending_project_root"] = str(path)
 
 
@@ -94,6 +143,8 @@ def _help_message() -> str:
         "<b>Development controls</b>\n"
         "/run [--dry-run] [--project-root /path]\n"
         "/status\n"
+        "/health\n"
+        "/logs [N]\n"
         "/stop\n\n"
         "<b>Consilium review controls</b>\n"
         "/approve\n"
@@ -248,11 +299,7 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     runner: RunnerManager = context.bot_data["runner"]
     chat_id = update.effective_chat.id
 
-    if runner.has_active_run(chat_id):
-        await update.message.reply_text("A run is already active. Use /stop first.")
-        return
-
-    task_text = _get_pending_task(context)
+    task_text = _get_pending_task(context, chat_id=chat_id)
     if not task_text:
         await update.message.reply_text(
             "No task set. Send text or upload a <code>.md</code> file first.",
@@ -269,7 +316,7 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if idx + 1 < len(args):
             project_root = Path(args[idx + 1])
     else:
-        project_root = _get_pending_project_root(context)
+        project_root = _get_pending_project_root(context, chat_id=chat_id)
 
     if project_root is not None:
         try:
@@ -280,6 +327,28 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.exception("Failed to prepare project root %s", project_root)
             await update.message.reply_text(f"Failed to prepare project root: {exc}")
             return
+
+    if runner.has_active_run(chat_id):
+        try:
+            queue_id = runner.queue_run(
+                chat_id=chat_id,
+                task_text=task_text,
+                dry_run=dry_run,
+                project_root=project_root,
+            )
+            _clear_pending_task(context, chat_id=chat_id)
+            queued = runner.queue_depth(chat_id)
+            active = runner.active_run_id(chat_id) or "unknown"
+            await update.message.reply_text(
+                f"Run already active (<code>{active}</code>). "
+                f"Queued your request as job #{queue_id}. "
+                f"Queue depth: {queued}.",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.exception("Failed to queue run")
+            await update.message.reply_text(f"A run is already active, and queueing failed: {exc}")
+        return
 
     try:
         run_id = await runner.start_run(
@@ -293,7 +362,7 @@ async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Failed to start run: {exc}")
         return
 
-    _clear_pending_task(context)
+    _clear_pending_task(context, chat_id=chat_id)
     mode = " (dry-run)" if dry_run else ""
     project_line = f"\nProject root: <code>{project_root}</code>" if project_root else ""
     monitor_cmd = runner.local_monitor_command(run_id, project_root)
@@ -315,7 +384,11 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     chat_id = update.effective_chat.id
 
     if not runner.has_active_run(chat_id):
-        await update.message.reply_text("No active run.")
+        queued = runner.queue_depth(chat_id)
+        if queued:
+            await update.message.reply_text(f"No active run. Queue depth: {queued}.")
+        else:
+            await update.message.reply_text("No active run.")
         return
 
     status = runner.get_status(chat_id)
@@ -323,6 +396,52 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(status, parse_mode="HTML")
     else:
         await update.message.reply_text("Run is active but state.json is not available yet.")
+
+
+async def health_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/health — richer liveness snapshot for active run."""
+    if not _is_authorized(update):
+        await update.message.reply_text("Access denied.")
+        return
+
+    runner: RunnerManager = context.bot_data["runner"]
+    chat_id = update.effective_chat.id
+    health = runner.get_health(chat_id)
+    if not health:
+        queued = runner.queue_depth(chat_id)
+        if queued:
+            await update.message.reply_text(f"No active run. Queue depth: {queued}.")
+        else:
+            await update.message.reply_text("No active run.")
+        return
+
+    await update.message.reply_text(format_health_report(health), parse_mode="HTML")
+
+
+async def logs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/logs [N] — tail recent conductor log lines for active run."""
+    if not _is_authorized(update):
+        await update.message.reply_text("Access denied.")
+        return
+
+    runner: RunnerManager = context.bot_data["runner"]
+    chat_id = update.effective_chat.id
+
+    line_count = 20
+    if context.args:
+        try:
+            line_count = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("Usage: /logs [N] where N is an integer")
+            return
+
+    logs = runner.get_recent_logs(chat_id, lines=line_count)
+    if logs is None:
+        await update.message.reply_text("No active run.")
+        return
+
+    run_id = runner.active_run_id(chat_id) or "unknown"
+    await update.message.reply_text(format_logs_report(run_id, logs), parse_mode="HTML")
 
 
 async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -373,7 +492,8 @@ async def refine_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
 
-    task_text = _get_pending_task(context)
+    chat_id = update.effective_chat.id
+    task_text = _get_pending_task(context, chat_id=chat_id)
     if not task_text:
         await update.message.reply_text(
             "No idea set. Send text or upload a .md file first, then /consilium (or /refine).",
@@ -488,6 +608,7 @@ async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     try:
         user_id = update.effective_user.id if update.effective_user else 0
+        chat_id = update.effective_chat.id
         config_path = CONDUCTOR_ROOT / "config.yaml"
 
         handoff_result = engine.run_handoff(
@@ -517,8 +638,13 @@ async def approve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             project_root = _prepare_project_root(project_name, approved_task)
             _ensure_git_repo(project_root)
-            _set_pending_task(context, approved_task)
-            _set_pending_project_root(context, project_root)
+            _set_pending_task(
+                context,
+                approved_task,
+                chat_id=chat_id,
+                project_root=project_root,
+            )
+            _set_pending_project_root(context, project_root, chat_id=chat_id)
             await update.message.reply_text(
                 f"Project folder prepared: <code>{project_root}</code>\n"
                 f"Run /run to start development there.",
@@ -590,6 +716,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     text = update.message.text.strip()
     if not text:
         return
+    chat_id = update.effective_chat.id
 
     # If a refiner session is active, treat text as review feedback
     engine = _get_refiner(context)
@@ -649,7 +776,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
 
     # No active refiner — store as pending task
-    _set_pending_task(context, text)
+    _set_pending_task(context, text, chat_id=chat_id, project_root=None)
     _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
     await update.message.reply_text(_next_step_prompt(preview), parse_mode="HTML")
@@ -664,6 +791,7 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     doc = update.message.document
     if doc is None:
         return
+    chat_id = update.effective_chat.id
 
     name = doc.file_name or ""
     if not name.endswith(".md"):
@@ -678,7 +806,7 @@ async def file_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("The uploaded file is empty.")
         return
 
-    _set_pending_task(context, text)
+    _set_pending_task(context, text, chat_id=chat_id, project_root=None)
     _clear_pending_project_root(context)
     preview = text[:100] + ("..." if len(text) > 100 else "")
     await update.message.reply_text(_next_step_prompt(preview, source_name=name), parse_mode="HTML")

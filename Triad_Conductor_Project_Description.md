@@ -4,7 +4,7 @@
 **Date:** 2026-02-28
 **Host:** macOS (Mac mini)
 **Primary use:** autonomous multi-model coding orchestration (Claude, Codex, Gemini)
-**Current maturity:** v0.1.0 — functional, tested, Telegram bot + Triad Architect refinement layer
+**Current maturity:** v0.1.0 — functional, tested, Telegram bot + Triad Architect refinement layer + persistent Telegram state/queue
 
 ---
 
@@ -47,17 +47,23 @@ Primary launch path:
 - Redaction utilities for secrets/tokens in prompts/log fragments
 - One-command launcher (`triad-start`) for "new folder + project.md + run", now with environment preflight checks
 - Telegram bot integration with `/run`, `/status`, `/stop`, `/refine`, `/approve`, `/reject`, `/history`
+- Telegram operational commands: `/health` and `/logs [N]`
 - Telegram `/approve` now auto-prepares `/Users/daniyarserikson/Projects/<project-name>/project.md` + git repo bootstrap
 - Telegram post-run auto-publish: merge `integrate`→`main` (when successful), update project-scoped comprehensive description, create/push GitHub repo, send publish report message
+- Telegram SQLite persistence for pending tasks, run queue, active run metadata, and run history (`runs/telegram_state.db`)
+- Per-chat run queue with auto-start of next queued run after completion
+- Stuck-phase alerting in Telegram when a phase stalls beyond threshold
 - **Triad Architect** idea refinement: 3-persona expansion, heuristic scoring, arbiter synthesis, structured user review, handoff to development
 - `conductor.py ideate` CLI subcommand for non-Telegram refinement
+- `conductor.py doctor` diagnostics command (CLI/version/auth checks)
+- CLI minimum version gate for provider tools (`claude`, `codex`, `gemini`)
 - Dry-run mode with fixture examples for both conductor and architect pipelines
 - `/consilium` (`/refine`) now enforces model auth preflight before running non-dry refinement
 
 ### Out of Scope (still)
 - Billing/subscription and user management
 - Web dashboard/GUI
-- Persistent run queue with multi-worker scheduling
+- Multi-worker distributed scheduling across machines
 
 ---
 
@@ -157,6 +163,18 @@ triad-start --skip-auth-preflight
 # Skip checks (not recommended)
 triad-start --skip-preflight
 ```
+
+### G) Environment diagnostics (`doctor`)
+
+```bash
+./.venv/bin/python conductor.py doctor --config config.yaml
+./.venv/bin/python conductor.py doctor --json
+```
+
+`doctor` reports:
+- command availability/version probes
+- provider CLI minimum-version gate results
+- provider authentication status (unless `--skip-auth-preflight`)
 
 ---
 
@@ -310,6 +328,8 @@ Only the conductor merges into integrate (no builder push).
 | `/start`, `/help` | Show usage |
 | `/run [--dry-run] [--project-root /path]` | Launch conductor run |
 | `/status` | Read state.json, show phase/milestone/cost |
+| `/health` | Liveness snapshot (phase age, state age, stuck indicator, queue depth) |
+| `/logs [N]` | Tail recent conductor log lines for active run |
 | `/stop` | SIGINT → conductor's clean shutdown |
 | `/refine [--dry-run]` | Start Triad Architect on pending task |
 | `/approve` | Approve refined spec, trigger handoff, and auto-prepare `/Users/daniyarserikson/Projects/<project-name>` |
@@ -325,11 +345,16 @@ Only the conductor merges into integrate (no builder push).
 - `TRIAD_GITHUB_AUTO_PUBLISH` — `1` (default) to auto-create/push GitHub repo after run, `0` to disable
 - `TRIAD_GITHUB_OWNER` — Optional owner/org for `gh repo create` (otherwise uses authenticated default)
 - `TRIAD_GITHUB_VISIBILITY` — `private` (default), `public`, or `internal`
+- `TRIAD_TELEGRAM_STATE_DB` — SQLite path for pending tasks/queue/history (default: `runs/telegram_state.db`)
+- `TRIAD_TELEGRAM_HEARTBEAT_SECONDS` — heartbeat interval while phase is unchanged (default: `60`)
+- `TRIAD_TELEGRAM_STUCK_ALERT_SECONDS` — stuck alert threshold per phase (default: `600`)
+- `TRIAD_TELEGRAM_STUCK_ALERT_COOLDOWN_SECONDS` — cooldown between repeated stuck alerts (default: `600`)
 
 ### Architecture
 - Subprocess model: bot spawns `conductor.py run` as child process per run
 - State polling: reads `state.json` every 2s for phase transitions
-- One active run per chat
+- One active run per chat + persistent queued runs per chat (FIFO)
+- Pending tasks and run queue are durable via SQLite store
 - Refiner sessions stored in `chat_data` (per-chat, in-memory)
 - After `/approve`, bot stores pending task + pending project root and initializes git in that folder
 - `/run` uses stored project root by default (unless explicit `--project-root` is provided)
@@ -363,6 +388,15 @@ Only the conductor merges into integrate (no builder push).
 ### Permission Toggles (env vars)
 - `TRIAD_AUTOMATE_PERMISSIONS=1` (default) — Skip permission prompts
 - `TRIAD_DANGEROUS_AUTONOMY=1` — Codex without sandbox (dangerous)
+
+### Version Gate
+- `conductor.py run` and `conductor.py ideate` enforce minimum provider CLI versions by default:
+  - `claude >= 2.0.0`
+  - `codex >= 0.106.0`
+  - `gemini >= 0.30.0`
+- Bypass only when needed:
+  - CLI flag: `--skip-version-gate`
+  - Env flag: `TRIAD_SKIP_VERSION_GATE=1`
 
 ### Model Lifecycle Policy (New Provider Releases)
 
@@ -468,7 +502,8 @@ triad-conductor/
 ├── Triad_Forge_Proposal.md
 │
 ├── conductor/
-│   ├── cli.py                      # Main CLI: run + ideate subcommands
+│   ├── cli.py                      # Main CLI: run + ideate + doctor subcommands
+│   ├── doctor.py                   # Environment diagnostics reporter
 │   ├── config.py                   # YAML config → Config dataclass
 │   ├── state.py                    # RunState, Limits, breakers, atomic persist
 │   ├── git_ops.py                  # Git branch/worktree/merge/diff
@@ -483,7 +518,9 @@ triad-conductor/
 │   │
 │   ├── models/
 │   │   ├── invoker.py              # CLI invocation for claude/codex/gemini
-│   │   └── parsers.py              # JSON extraction from model output
+│   │   ├── parsers.py              # JSON extraction from model output
+│   │   ├── preflight.py            # Provider auth preflight checks
+│   │   └── version_gate.py         # Minimum provider CLI version enforcement
 │   │
 │   ├── phases/
 │   │   ├── intake.py               # Phase 0: Setup dirs, git, worktrees
@@ -505,9 +542,10 @@ triad-conductor/
 │   │
 │   └── telegram/
 │       ├── bot.py                  # Application builder + handler registration
-│       ├── handlers.py             # /run /status /stop /refine /approve /reject /history
-│       ├── runner.py               # RunnerManager: subprocess + state polling
-│       └── formatting.py           # Phase emojis, status, reports
+│       ├── handlers.py             # /run /status /health /logs /stop /refine /approve /reject /history
+│       ├── runner.py               # RunnerManager: subprocess + state polling + queue + stuck alerts
+│       ├── store.py                # Persistent SQLite state for pending tasks/queue/history
+│       └── formatting.py           # Phase emojis, status, health/log/report formatting
 │
 ├── prompts/
 │   ├── proposer.md                 # Proposes implementation plans
@@ -552,9 +590,10 @@ triad-conductor/
 │   ├── expansion_advocate.json
 │   └── refined_spec.json
 │
-├── tests/                          # Test suite (128 tests)
+├── tests/                          # Test suite (143 tests)
 │   ├── conftest.py
 │   ├── test_cli_context.py
+│   ├── test_cli_doctor.py
 │   ├── test_config.py
 │   ├── test_git_ops.py
 │   ├── test_build_phase.py
@@ -567,6 +606,9 @@ triad-conductor/
 │   ├── test_redaction.py
 │   ├── test_state.py
 │   ├── test_stuck.py
+│   ├── test_version_gate.py
+│   ├── test_telegram_store.py
+│   ├── test_telegram_health_logs.py
 │   ├── test_telegram_runner.py
 │   ├── test_prompt_renderer.py
 │   └── fixtures/sample_task.md
@@ -647,11 +689,10 @@ Install: `pip install -e ".[telegram]"`
 
 ## 17) Quality Status
 
-- **Test suite:** 128 tests passing
-- **Test suite:** 130 tests passing
+- **Test suite:** 143 tests passing
 - **Schema validation:** All 14 schemas verified with fixture examples
 - **Dry-run:** End-to-end verified for both `run` and `ideate` subcommands
-- **Telegram bot:** Verified command handling, runner command forwarding, auto-project-root preparation, and post-run publish reporting
+- **Telegram bot:** Verified command handling, queue persistence, runner command forwarding, health/log reporting, auto-project-root preparation, and post-run publish reporting
 
 ---
 
@@ -668,11 +709,21 @@ Install: `pip install -e ".[telegram]"`
   - create GitHub repo via `gh repo create` when missing
   - push `main` to `origin`
   - send Telegram publish report summary message
+- Added persistent Telegram SQLite store (`runs/telegram_state.db`) for:
+  - pending task/project-root state
+  - per-chat FIFO run queue
+  - active run metadata and recent run history
+- Added operational visibility:
+  - `/health` command (phase age, state age, queue depth, stuck indicator)
+  - `/logs [N]` command (recent `conductor.log` tail)
+  - heartbeat + stuck-phase alerts while run is active
 
 ### Launcher & CLI compatibility
 - `triad-start` preflight checks (`--preflight-only`, `--skip-preflight`)
 - `triad-start` auth preflight checks (`--skip-auth-preflight` override available)
 - `conductor.py run` and `conductor.py ideate` enforce model auth preflight by default (`--skip-auth-preflight` or `TRIAD_SKIP_AUTH_PREFLIGHT=1` to bypass)
+- `conductor.py run` and `conductor.py ideate` enforce provider CLI minimum versions by default (`--skip-version-gate` or `TRIAD_SKIP_VERSION_GATE=1` to bypass)
+- `conductor.py doctor` added for one-shot diagnostics (commands + versions + auth)
 - Telegram `/consilium` (`/refine`) also enforces model auth preflight for non-dry runs
 - Per-role model pinning added via `model` in config refs, forwarded to all provider CLIs
 - Codex invoker fallback handles both unknown-option and unexpected-argument flag errors

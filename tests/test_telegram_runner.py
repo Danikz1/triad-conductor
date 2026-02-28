@@ -176,3 +176,40 @@ def test_start_run_auto_opens_monitor_when_enabled(monkeypatch, tmp_path):
 
     assert captured["osascript_cmd"] is not None
     assert captured["osascript_cmd"][0] == "osascript"
+
+
+def test_queue_run_persists_in_store(monkeypatch, tmp_path):
+    runner_mod = _import_runner_module(monkeypatch)
+    store = runner_mod.TelegramStateStore(tmp_path / "telegram_state.db")
+    manager = runner_mod.RunnerManager(bot=object(), store=store)
+
+    queue_id = manager.queue_run(
+        chat_id=9,
+        task_text="# queued task",
+        dry_run=True,
+        project_root=Path("/tmp/project"),
+    )
+
+    assert queue_id > 0
+    assert manager.queue_depth(9) == 1
+
+
+def test_stuck_alert_respects_threshold_and_cooldown(monkeypatch, tmp_path):
+    runner_mod = _import_runner_module(monkeypatch)
+    monkeypatch.setenv("TRIAD_TELEGRAM_STUCK_ALERT_SECONDS", "5")
+    monkeypatch.setenv("TRIAD_TELEGRAM_STUCK_ALERT_COOLDOWN_SECONDS", "60")
+
+    manager = runner_mod.RunnerManager(bot=object())
+    run = runner_mod.ActiveRun(
+        run_id="tg-stuck",
+        chat_id=1,
+        process=_DummyProcess(),
+        conductor_root=tmp_path,
+        task_file=tmp_path / "task.md",
+        project_root=tmp_path / "project",
+    )
+    run.last_phase_change_at = runner_mod.time.time() - 10
+    state_path = tmp_path / "state.json"
+
+    assert manager._should_send_stuck_alert(run, "PROPOSE", state_path) is True
+    assert manager._should_send_stuck_alert(run, "PROPOSE", state_path) is False

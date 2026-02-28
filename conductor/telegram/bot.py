@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from telegram import BotCommand
 from telegram.ext import (
@@ -16,8 +17,10 @@ from telegram.ext import (
 from .handlers import (
     approve_cmd,
     file_message,
+    health_cmd,
     help_cmd,
     history_cmd,
+    logs_cmd,
     refine_cmd,
     reject_cmd,
     run_cmd,
@@ -27,6 +30,7 @@ from .handlers import (
     text_message,
 )
 from .runner import RunnerManager
+from .store import TelegramStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,8 @@ async def _post_init_set_commands(app) -> None:
         BotCommand("run", "Start development run"),
         BotCommand("develop", "Alias of /run"),
         BotCommand("status", "Show active run status"),
+        BotCommand("health", "Show run liveness details"),
+        BotCommand("logs", "Show recent run logs"),
         BotCommand("stop", "Stop active run"),
         BotCommand("approve", "Approve refined spec"),
         BotCommand("reject", "Reject refined spec"),
@@ -60,8 +66,18 @@ def create_application():
 
     app = ApplicationBuilder().token(token).post_init(_post_init_set_commands).build()
 
+    conductor_root = Path(__file__).resolve().parents[2]
+    state_db = Path(
+        os.environ.get(
+            "TRIAD_TELEGRAM_STATE_DB",
+            str(conductor_root / "runs" / "telegram_state.db"),
+        )
+    ).expanduser()
+    store = TelegramStateStore(state_db)
+
     # Inject RunnerManager into bot_data so handlers can access it
-    app.bot_data["runner"] = RunnerManager(bot=app.bot)
+    app.bot_data["store"] = store
+    app.bot_data["runner"] = RunnerManager(bot=app.bot, store=store)
 
     # Command handlers — development
     app.add_handler(CommandHandler("start", start_cmd))
@@ -69,6 +85,8 @@ def create_application():
     app.add_handler(CommandHandler("develop", run_cmd))
     app.add_handler(CommandHandler("run", run_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("health", health_cmd))
+    app.add_handler(CommandHandler("logs", logs_cmd))
     app.add_handler(CommandHandler("stop", stop_cmd))
 
     # Command handlers — Triad Architect (idea refinement)

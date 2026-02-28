@@ -37,6 +37,7 @@ class _DummyUpdate:
     def __init__(self):
         self.message = _DummyMessage()
         self.effective_user = types.SimpleNamespace(id=1)
+        self.effective_chat = types.SimpleNamespace(id=1)
 
 
 def test_refine_reports_auth_preflight_failure(monkeypatch, tmp_path):
