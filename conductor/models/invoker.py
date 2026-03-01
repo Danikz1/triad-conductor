@@ -142,8 +142,10 @@ def _invoke_codex(
     cmd = ["codex", "exec", "-"]
     if model_id:
         cmd += ["--model", model_id]
-    if automate:
-        cmd += ["-a", "never", "--sandbox", "danger-full-access" if dangerous else "workspace-write"]
+    if automate and dangerous:
+        cmd.append("--dangerously-bypass-approvals-and-sandbox")
+    elif automate:
+        cmd.append("--full-auto")
     if cwd:
         cmd += ["-C", str(cwd)]
 
@@ -161,7 +163,7 @@ def _invoke_codex(
         fallback_cmd += ["--full-auto"]
         if cwd:
             fallback_cmd += ["-C", str(cwd)]
-        log.warning("Codex CLI rejected approval/sandbox flags; retrying with --full-auto")
+        log.warning("Codex CLI rejected flags; retrying with --full-auto only")
         result = subprocess.run(
             fallback_cmd, input=prompt, text=True, capture_output=True, timeout=600,
         )
@@ -193,9 +195,7 @@ def _invoke_gemini(
     automate, _ = _permission_mode()
     attempts: list[list[str]]
     if automate:
-        # Try both flags first; newer CLIs may accept this combination.
         attempts = [
-            cmd_base + ["--yolo", "--approval-mode", "yolo"],
             cmd_base + ["--approval-mode=yolo"],
             cmd_base + ["--yolo"],
         ]
@@ -228,7 +228,26 @@ def _invoke_gemini(
     if result.returncode != 0:
         raise RuntimeError(f"Gemini CLI failed (exit {result.returncode}): {result.stderr[:500]}")
 
-    return extract_json(result.stdout)
+    parsed = extract_json(result.stdout)
+
+    # Gemini CLI wraps model output in {response, session_id, stats}.
+    # Unwrap: if the top-level object has a "response" key and looks like
+    # the Gemini envelope (has session_id or stats), extract the inner payload.
+    if (
+        isinstance(parsed, dict)
+        and "response" in parsed
+        and ("session_id" in parsed or "stats" in parsed)
+    ):
+        inner = parsed["response"]
+        if isinstance(inner, str):
+            try:
+                inner = extract_json(inner)
+            except ValueError:
+                pass
+        if isinstance(inner, (dict, list)):
+            parsed = inner
+
+    return parsed
 
 
 def invoke_model_safe(

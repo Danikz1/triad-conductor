@@ -78,7 +78,7 @@ def test_invoke_claude_includes_model_flag():
         assert "opus" in cmd
 
 
-def test_invoke_codex_uses_workspace_write_by_default(monkeypatch):
+def test_invoke_codex_uses_full_auto_by_default(monkeypatch):
     monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
     monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "0")
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
@@ -87,13 +87,10 @@ def test_invoke_codex_uses_workspace_write_by_default(monkeypatch):
         )
         _invoke_codex("prompt")
         cmd = mock_run.call_args.args[0]
-        assert "-a" in cmd
-        assert "never" in cmd
-        assert "--sandbox" in cmd
-        assert "workspace-write" in cmd
+        assert "--full-auto" in cmd
 
 
-def test_invoke_codex_uses_danger_sandbox_when_enabled(monkeypatch):
+def test_invoke_codex_uses_dangerous_bypass_when_enabled(monkeypatch):
     monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
     monkeypatch.setenv("TRIAD_DANGEROUS_AUTONOMY", "1")
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
@@ -102,8 +99,7 @@ def test_invoke_codex_uses_danger_sandbox_when_enabled(monkeypatch):
         )
         _invoke_codex("prompt")
         cmd = mock_run.call_args.args[0]
-        assert "--sandbox" in cmd
-        assert "danger-full-access" in cmd
+        assert "--dangerously-bypass-approvals-and-sandbox" in cmd
 
 
 def test_invoke_codex_includes_model_flag(monkeypatch):
@@ -124,7 +120,7 @@ def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
         mock_run.side_effect = [
             subprocess.CompletedProcess(
-                args=["codex"], returncode=2, stdout="", stderr="unknown option: -a"
+                args=["codex"], returncode=2, stdout="", stderr="unknown option: --full-auto"
             ),
             subprocess.CompletedProcess(
                 args=["codex"], returncode=0, stdout="{}", stderr=""
@@ -133,7 +129,7 @@ def test_invoke_codex_falls_back_to_full_auto_on_unknown_option(monkeypatch):
         _invoke_codex("prompt")
         first_cmd = mock_run.call_args_list[0].args[0]
         second_cmd = mock_run.call_args_list[1].args[0]
-        assert "-a" in first_cmd
+        assert "--full-auto" in first_cmd
         assert "--full-auto" in second_cmd
 
 
@@ -142,7 +138,7 @@ def test_invoke_codex_fallback_preserves_model(monkeypatch):
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
         mock_run.side_effect = [
             subprocess.CompletedProcess(
-                args=["codex"], returncode=2, stdout="", stderr="unknown option: -a"
+                args=["codex"], returncode=2, stdout="", stderr="unknown option: --full-auto"
             ),
             subprocess.CompletedProcess(
                 args=["codex"], returncode=0, stdout="{}", stderr=""
@@ -160,7 +156,7 @@ def test_invoke_codex_falls_back_to_full_auto_on_unexpected_argument(monkeypatch
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
         mock_run.side_effect = [
             subprocess.CompletedProcess(
-                args=["codex"], returncode=2, stdout="", stderr="error: unexpected argument '-a' found"
+                args=["codex"], returncode=2, stdout="", stderr="error: unexpected argument found"
             ),
             subprocess.CompletedProcess(
                 args=["codex"], returncode=0, stdout="{}", stderr=""
@@ -169,11 +165,11 @@ def test_invoke_codex_falls_back_to_full_auto_on_unexpected_argument(monkeypatch
         _invoke_codex("prompt")
         first_cmd = mock_run.call_args_list[0].args[0]
         second_cmd = mock_run.call_args_list[1].args[0]
-        assert "-a" in first_cmd
+        assert "--full-auto" in first_cmd
         assert "--full-auto" in second_cmd
 
 
-def test_invoke_gemini_falls_back_to_approval_mode_equals(monkeypatch):
+def test_invoke_gemini_falls_back_to_yolo_when_approval_mode_unknown(monkeypatch):
     monkeypatch.setenv("TRIAD_AUTOMATE_PERMISSIONS", "1")
     with patch("conductor.models.invoker.subprocess.run") as mock_run:
         mock_run.side_effect = [
@@ -181,7 +177,7 @@ def test_invoke_gemini_falls_back_to_approval_mode_equals(monkeypatch):
                 args=["gemini"],
                 returncode=1,
                 stdout="",
-                stderr="Cannot use both --yolo (-y) and --approval-mode together. Use --approval-mode=yolo instead.",
+                stderr="unknown option: --approval-mode=yolo",
             ),
             subprocess.CompletedProcess(
                 args=["gemini"], returncode=0, stdout="{}", stderr=""
@@ -190,10 +186,8 @@ def test_invoke_gemini_falls_back_to_approval_mode_equals(monkeypatch):
         _invoke_gemini("prompt")
         first_cmd = mock_run.call_args_list[0].args[0]
         second_cmd = mock_run.call_args_list[1].args[0]
-        assert "--yolo" in first_cmd
-        assert "--approval-mode" in first_cmd
-        assert "--approval-mode=yolo" in second_cmd
-        assert "--yolo" not in second_cmd
+        assert "--approval-mode=yolo" in first_cmd
+        assert "--yolo" in second_cmd
 
 
 def test_invoke_gemini_includes_model_flag(monkeypatch):
@@ -216,12 +210,6 @@ def test_invoke_gemini_falls_back_to_yolo_when_approval_unknown(monkeypatch):
                 args=["gemini"],
                 returncode=1,
                 stdout="",
-                stderr="unknown option: --approval-mode",
-            ),
-            subprocess.CompletedProcess(
-                args=["gemini"],
-                returncode=1,
-                stdout="",
                 stderr="unknown option: --approval-mode=yolo",
             ),
             subprocess.CompletedProcess(
@@ -229,6 +217,6 @@ def test_invoke_gemini_falls_back_to_yolo_when_approval_unknown(monkeypatch):
             ),
         ]
         _invoke_gemini("prompt")
-        third_cmd = mock_run.call_args_list[2].args[0]
-        assert "--yolo" in third_cmd
-        assert "--approval-mode" not in " ".join(third_cmd)
+        second_cmd = mock_run.call_args_list[1].args[0]
+        assert "--yolo" in second_cmd
+        assert "--approval-mode" not in " ".join(second_cmd)
