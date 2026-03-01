@@ -379,11 +379,10 @@ Only the conductor merges into integrate (no builder push).
 
 ### CLI Commands
 - **Claude:** `claude -p --output-format json --no-session-persistence [--model <id>] [--json-schema <path>] [--mcp-config <path>] [--dangerously-skip-permissions]`
-- **Codex:** primary `codex exec - [--model <id>] -a never --sandbox <workspace-write|danger-full-access> [-C <dir>]`, compatibility fallback to `codex exec - [--model <id>] --full-auto`
+- **Codex:** `codex exec - [--model <id>] --full-auto [-C <dir>]` (or `--dangerously-bypass-approvals-and-sandbox` when `TRIAD_DANGEROUS_AUTONOMY=1`), compatibility fallback to `codex exec - [--model <id>] --full-auto`
 - **Gemini:** tries compatibility sequence:
-  1. `[--model <id>] --yolo --approval-mode yolo`
-  2. `[--model <id>] --approval-mode=yolo`
-  3. `[--model <id>] --yolo`
+  1. `[--model <id>] --approval-mode=yolo`
+  2. `[--model <id>] --yolo`
 
 ### Permission Toggles (env vars)
 - `TRIAD_AUTOMATE_PERMISSIONS=1` (default) — Skip permission prompts
@@ -726,8 +725,8 @@ Install: `pip install -e ".[telegram]"`
 - `conductor.py doctor` added for one-shot diagnostics (commands + versions + auth)
 - Telegram `/consilium` (`/refine`) also enforces model auth preflight for non-dry runs
 - Per-role model pinning added via `model` in config refs, forwarded to all provider CLIs
-- Codex invoker fallback handles both unknown-option and unexpected-argument flag errors
-- Gemini invoker fallback handles conflicting `--yolo`/`--approval-mode` variants across CLI versions
+- Codex invoker uses `--full-auto` (or `--dangerously-bypass-approvals-and-sandbox` for dangerous mode) instead of the nonexistent `-a never` flag
+- Gemini invoker tries `--approval-mode=yolo` first, falls back to `--yolo` (removed conflicting combined-flag first attempt)
 
 ### Triad Architect (idea refinement system)
 - 6 new JSON schemas for the refinement pipeline
